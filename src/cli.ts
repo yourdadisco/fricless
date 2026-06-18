@@ -585,7 +585,9 @@ async function terminalMode(): Promise<void> {
   }
 
   // 简洁启动（类似 Claude Code）
-  await renderer.markdown(`**Fricless** v${VERSION}  —  \`/help\` for commands`);
+  const providerInfo = provider?.getModelInfo?.();
+  const modelName = providerInfo?.name || 'unknown';
+  await renderer.markdown(`**Fricless** v${VERSION}  —  \`/help\` for commands  —  ${modelName}`);
 
   function setupReadline(rl: readline.Interface) {
     rl.on('line', async (line: string) => {
