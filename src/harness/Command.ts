@@ -37,8 +37,9 @@ export class Command {
   get description() { return this.def.description; }
 
   matches(input: string): boolean {
-    const normalized = input.toLowerCase().replace(/^\//, '');
-    return normalized === this.name || this.aliases.includes(normalized);
+    // 只取命令名部分（去掉 / 和后面的参数）
+    const cmdName = input.toLowerCase().replace(/^\//, '').trim().split(/\s+/)[0];
+    return cmdName === this.name || this.aliases.includes(cmdName);
   }
 
   async execute(raw: string, ctx: CommandContext): Promise<void> {

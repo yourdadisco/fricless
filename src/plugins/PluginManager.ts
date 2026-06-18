@@ -27,7 +27,8 @@ export class PluginManager {
    */
   async loadAll(pluginDir: string): Promise<void> {
     if (!fs.existsSync(pluginDir)) {
-      logger.warn({ pluginDir }, '插件目录不存在');
+      // 插件目录不存在不算异常，用户可能没装插件
+      logger.debug({ pluginDir }, '插件目录不存在');
       return;
     }
 

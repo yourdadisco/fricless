@@ -121,9 +121,8 @@ export class Harness {
     const matched = this.commands.find(c => c.matches(raw));
 
     if (!matched) {
-      await this.renderer.error(
-        `未知命令: ${raw}。输入 \`/help\` 查看可用命令。`,
-      );
+      const cmdName = raw.replace(/^\//, '').trim().split(/\s+/)[0];
+      await this.renderer.text(`未知命令: /${cmdName}。输入 /help 查看可用命令。`);
       return;
     }
 

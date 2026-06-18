@@ -214,7 +214,7 @@ describe('全流程集成测试', () => {
     it('/bogus → 返回未知命令', async () => {
       const { renderer, harness } = createTestHarness();
       await harness.handleUserMessage('/bogus');
-      expect(renderer.errors.some(e => e.includes('未知命令'))).toBe(true);
+      expect(renderer.texts.some(e => e.includes('未知命令'))).toBe(true);
     });
   });
 

@@ -332,7 +332,7 @@ describe('Harness', () => {
 
       await harness.handleUserMessage('/bogus');
 
-      expect(renderer.errors.some(e => e.includes('未知命令'))).toBe(true);
+      expect(renderer.texts.some(e => e.includes('未知命令'))).toBe(true);
     });
   });
 });
