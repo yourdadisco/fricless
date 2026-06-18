@@ -118,6 +118,11 @@ async function executeSingleTool(
   onProgress?.(call.name);
 
   try {
+    // Claude Code pattern: backfillObservableInput runs BEFORE validation
+    if (tool.backfillObservableInput) {
+      tool.backfillObservableInput(call.input);
+    }
+
     // 输入校验
     if (tool.validateInput) {
       const validation = tool.validateInput(call.input);

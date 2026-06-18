@@ -1,33 +1,47 @@
 import { z } from 'zod';
+import path from 'node:path';
 import { defineTool } from '../Tool.js';
 import { resolvePath } from './path_utils.js';
 
+// Claude Code pattern: append CWD to file not found errors
+const CWD_NOTE = process.cwd();
+
 export const readFileTool = defineTool({
   name: 'readFile',
-  description: '读取文件内容。支持 ~/Desktop/file.txt 格式的相对路径。',
+  description: '读取文件内容。参数 file_path 必须是绝对路径。',
   inputSchema: z.object({
-    path: z.string().describe('文件路径，支持 ~/Desktop/file.txt 或 C:\\Users\\name\\file.txt'),
-    maxLines: z.number().optional().describe('最大行数'),
+    file_path: z.string().describe('文件的绝对路径'),
+    offset: z.number().optional().describe('起始行号'),
+    limit: z.number().optional().describe('读取行数'),
   }),
+  // Claude Code pattern: expand paths BEFORE validation/permission checks
+  backfillObservableInput(input) {
+    if (input.file_path && typeof input.file_path === 'string') {
+      input.file_path = resolvePath(input.file_path);
+    }
+  },
   isReadOnly: true,
   isConcurrencySafe: true,
-  isDestructive: false,
-  permissionLevel: 'auto',
-  searchHint: 'file read cat view content open',
+  searchHint: 'read files images pdfs notebooks',
   maxResultSizeChars: 10000,
   async call(input, ctx) {
-    const { path, maxLines } = input;
-    const resolvedPath = resolvePath(path);
+    const { file_path, offset, limit } = input as { file_path: string; offset?: number; limit?: number };
     const fs = await import('node:fs');
     try {
-      if (!fs.existsSync(resolvedPath)) return { data: `文件不存在: ${resolvedPath}`, isError: true };
-      let content = fs.readFileSync(resolvedPath, 'utf-8');
-      if (maxLines) {
+      if (!fs.existsSync(file_path)) {
+        return { data: `文件不存在: ${file_path}。当前工作目录: ${CWD_NOTE}`, isError: true };
+      }
+      let content = fs.readFileSync(file_path, 'utf-8');
+      if (offset !== undefined || limit !== undefined) {
         const lines = content.split('\n');
-        content = lines.slice(0, maxLines).join('\n');
-        if (lines.length > maxLines) content += '\n... (' + (lines.length - maxLines) + ' more lines)';
+        const start = offset ?? 0;
+        const end = limit ? start + limit : lines.length;
+        content = lines.slice(start, end).join('\n');
+        if (lines.length > end) content += `\n... (共 ${lines.length} 行，显示 ${start}-${end})`;
       }
       return { data: content };
-    } catch (e: any) { return { data: `读取失败: ${e.message}`, isError: true }; }
+    } catch (e: any) {
+      return { data: `读取失败 [${file_path}]: ${e.message}`, isError: true };
+    }
   },
 });

@@ -76,6 +76,8 @@ export interface ToolDef<TInput = unknown, TOutput = string> {
   validateInput?: (input: unknown) => { valid: boolean; error?: string };
   /** 权限检查（可选，用于多租户审批） */
   checkPermissions?: (input: TInput, ctx: ToolContext) => Promise<{ allowed: boolean; reason?: string }>;
+  /** 在验证和执行前预处理输入（Claude Code: backfillObservableInput） */
+  backfillObservableInput?: (input: Record<string, unknown>) => void;
 }
 
 // ── 构建器 ─────────────────────────────────────────────────
