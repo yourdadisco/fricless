@@ -37,21 +37,19 @@ export const webSearchTool = defineTool({
   async call(input) {
     const { query, count = 5 } = input as { query: string; count?: number };
 
-    // 多后端依次尝试：Brave → SerpAPI → DuckDuckGo → Bing
-    const backends: Array<() => Promise<{ data: string }>> = [];
+    // 主用 Bing（免费、稳定），其他做备选
+    const backends: Array<() => Promise<{ data: string }>> = [
+      () => searchWithBing(query, count),
+    ];
 
-    // Brave Search API: 每月2000次免费 (https://brave.com/search/api/)
     const braveKey = process.env.BRAVE_API_KEY;
-    if (braveKey) {
-      backends.push(() => searchWithBrave(query, count, braveKey));
-    }
+    if (braveKey) backends.push(() => searchWithBrave(query, count, braveKey));
 
     const serpApiKey = process.env.SERPAPI_API_KEY;
-    if (serpApiKey) {
-      backends.push(() => searchWithSerpApi(query, count, serpApiKey));
-    }
+    if (serpApiKey) backends.push(() => searchWithSerpApi(query, count, serpApiKey));
+
+    // DuckDuckGo 目前返回验证页面，保留但放最后
     backends.push(() => searchWithDuckDuckGo(query, count));
-    backends.push(() => searchWithBing(query, count));
 
     let lastError = '所有搜索引擎均不可用';
     for (let i = 0; i < backends.length; i++) {
