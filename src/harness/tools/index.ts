@@ -9,6 +9,7 @@ import { dateTimeTool } from './datetime.js';
 import { discoverSkillsTool } from './discover_skills.js';
 import { echoTool } from './echo.js';
 import { editFileTool } from './edit_file.js';
+import { gitTool } from './git.js';
 import { globTool } from './glob.js';
 import { grepTool } from './grep.js';
 import { hashTool } from './hash.js';
@@ -64,6 +65,7 @@ export const builtinTools: AnyTool[] = [
   discoverSkillsTool,
   echoTool,
   editFileTool,
+  gitTool,
   globTool,
   grepTool,
   hashTool,
