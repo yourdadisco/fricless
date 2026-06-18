@@ -65,8 +65,9 @@ export const codeRunTool = defineTool({
   isDestructive: true,
   permissionLevel: 'confirm',
   async call(input) {
-    const { language, code } = input as { language: string; code: string };
-    const lang = language.toLowerCase().trim();
+    const { language, code } = input as { language?: string; code?: string };
+    if (!code) return { data: '请提供要执行的代码', isError: true };
+    const lang = (language || 'javascript').toLowerCase().trim();
 
     // 检查语言支持
     if (!SUPPORTED_LANGUAGES.includes(lang)) {
