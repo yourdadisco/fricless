@@ -14,7 +14,6 @@ import pino from 'pino';
 import path from 'node:path';
 import fs from 'node:fs';
 import * as readline from 'node:readline';
-import * as rlPromises from 'node:readline/promises';
 import { loadConfig } from './config.js';
 import { AnthropicProvider } from './providers/AnthropicProvider.js';
 import { OpenAIProvider } from './providers/OpenAIProvider.js';
@@ -190,6 +189,23 @@ const PROVIDERS: ProviderOption[] = [
  * 交互式 API 提供商和 Key 设置流程
  * 首次运行或无有效 Key 时，让用户选择大模型提供商并输入 API Key
  */
+// 保存主 readline 实例，供 onAuthError 复用其 question 方法
+let mainReadline: readline.Interface | null = null;
+
+/**
+ * 通过主 readline 的 question 方法读取用户输入（避免 readline 冲突）
+ */
+function rlQuestion(prompt: string): Promise<string> {
+  return new Promise((resolve) => {
+    if (mainReadline) {
+      mainReadline.question(prompt, (answer) => resolve(answer.trim()));
+    } else {
+      process.stdout.write(prompt);
+      process.stdin.once('data', (data) => resolve(data.toString().trim()));
+    }
+  });
+}
+
 async function ensureApiKey(force = false): Promise<void> {
   const envPath = path.resolve(process.cwd(), '.env');
 
@@ -202,16 +218,12 @@ async function ensureApiKey(force = false): Promise<void> {
     if (hasAnyKey) return;
   }
 
+  const ask = rlQuestion;
+
   console.log('\n  ┌─────────────────────────────────────────────┐');
   console.log('  │  🤖  首次使用 — 请选择 AI 模型提供商       │');
   console.log('  └─────────────────────────────────────────────┘\n');
 
-  const rl = rlPromises.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
-
-  // 列出提供商
   const maxNameLen = Math.max(...PROVIDERS.map(p => p.name.length + 2));
   console.log('请选择你要使用的 AI 模型提供商:\n');
   PROVIDERS.forEach((p, i) => {
@@ -221,12 +233,11 @@ async function ensureApiKey(force = false): Promise<void> {
   console.log(`  ${String(PROVIDERS.length + 1).padStart(2)}. 手动编辑 .env 文件`);
   console.log(`  ${String(PROVIDERS.length + 2).padStart(2)}. 跳过，进入离线模式\n`);
 
-  const choice = await rl.question(`请输入编号 (1-${PROVIDERS.length + 2}): `);
+  const choice = await ask(`请输入编号 (1-${PROVIDERS.length + 2}): `);
   const num = parseInt(choice.trim());
 
   if (isNaN(num) || num < 1 || num > PROVIDERS.length + 2) {
     console.log('  无效选项，进入离线模式。\n');
-    rl.close();
     return;
   }
 
@@ -243,14 +254,12 @@ async function ensureApiKey(force = false): Promise<void> {
       console.log(`  ${'─'.repeat(40)}`);
     });
     console.log(`  编辑完成后重新运行 fricless 即可。\n`);
-    rl.close();
     return;
   }
 
   // 跳过
   if (num === PROVIDERS.length + 2) {
     console.log('  已跳过，进入离线模式。\n');
-    rl.close();
     return;
   }
 
@@ -270,25 +279,22 @@ async function ensureApiKey(force = false): Promise<void> {
   if (keyUrls[provider.id]) console.log(`  获取 Key: ${keyUrls[provider.id]}`);
   console.log('');
 
-  const apiKey = await rl.question(`  API Key (${provider.keyHint}): `);
+  const apiKey = await ask(`  API Key (${provider.keyHint}): `);
   const trimmed = apiKey.trim();
 
   if (!trimmed) {
     console.log('  未输入 Key，进入离线模式。\n');
-    rl.close();
     return;
   }
 
-  const modelInput = await rl.question(`  模型 (默认 ${provider.defaultModel}): `);
+  const modelInput = await ask(`  模型 (默认 ${provider.defaultModel}): `);
   const model = modelInput.trim() || provider.defaultModel;
 
   let baseUrl = '';
   if (provider.defaultBaseUrl) {
-    const urlInput = await rl.question(`  API 地址 (默认 ${provider.defaultBaseUrl}): `);
+    const urlInput = await ask(`  API 地址 (默认 ${provider.defaultBaseUrl}): `);
     baseUrl = urlInput.trim() || provider.defaultBaseUrl;
   }
-
-  rl.close();
 
   // 保存到 .env
   try {
@@ -528,17 +534,8 @@ async function terminalMode(): Promise<void> {
       maxContextTokens: config.maxContextTokens,
     },
     onAuthError: async () => {
-      // 暂停 CLI 输入，防止与配置界面的 readline 冲突
-      if (cliRl) cliRl.close();
       await ensureApiKey(true);
       await renderer.text('✅ API Key 已更新，请重新发送消息。');
-      // 重新创建 CLI readline
-      cliRl = readline.createInterface({
-        input: process.stdin,
-        output: process.stdout,
-        prompt: '\x1b[36m⎜ \x1b[0m',
-      });
-      setupReadline(cliRl);
     },
   });
   lastHarness = harness;
@@ -582,6 +579,7 @@ async function terminalMode(): Promise<void> {
     output: process.stdout,
     prompt: '\x1b[36m⎜ \x1b[0m',
   });
+  mainReadline = cliRl;
   setupReadline(cliRl);
   cliRl.prompt();
 }
