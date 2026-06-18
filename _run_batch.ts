@@ -20,7 +20,7 @@ const provider = new OpenAIProvider({
   vendor: 'deepseek',
 });
 
-const tools = builtinTools.filter(t => !['agent', 'task_create', 'task_get', 'task_list', 'task_update', 'task_stop', 'task_output'].includes(t.name));
+const tools = builtinTools.filter(t => !['agent', 'task_create', 'task_get', 'task_list', 'task_update', 'task_stop', 'task_output', 'code_run', 'bash', 'powershell'].includes(t.name));
 
 const tasks = [
   ['04-代码生成', '写一个Python函数判断回文数'],

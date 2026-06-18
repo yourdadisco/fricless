@@ -407,7 +407,7 @@ async function terminalMode(): Promise<void> {
   // DeepSeek 有原生联网搜索（enable_web_search），不需要 web_search/browser/fetch 等网络工具
   const isDeepSeek = !!process.env.DEEPSEEK_API_KEY;
   const tools: AnyTool[] = [
-    ...builtinTools.filter(t => !isDeepSeek || !['agent', 'task_create', 'task_get', 'task_list', 'task_update', 'task_stop', 'task_output'].includes(t.name)),
+    ...builtinTools.filter(t => !isDeepSeek || !['agent', 'task_create', 'task_get', 'task_list', 'task_update', 'task_stop', 'task_output', 'code_run', 'bash', 'powershell'].includes(t.name)),
     ...pluginManager.allTools,
   ];
 
@@ -550,7 +550,7 @@ async function terminalMode(): Promise<void> {
     id: 'cli-session',
     userId: 'cli-user',
     systemPrompt: '你是一个智能助手，请用中文回答用户的问题。你可以调用工具来帮助用户完成各种任务。'
-      + (isDeepSeek ? '\n\n当用户询问需要最新信息的问题（如新闻、趋势、市场数据等）时，使用 web_search 工具搜索互联网获取最新资讯。对于日期时间等基础信息，使用 datetime 工具获取准确值。不要捏造信息，搜索后基于结果回答。' : ''),
+      + (isDeepSeek ? '\n\n当用户询问需要最新信息的问题时使用 web_search 搜索。有专门工具的操作用专用工具：base64编解码用base64，哈希用hash，UUID用uuid_gen，JSON用json_tool，密码用password_gen，正则用regex_test，颜色用color_tool，单位转换用unit_convert，时间戳用timestamp，翻译用translate。不要用code_run或bash去做这些操作。' : ''),
   });
   sessionStore.getOrCreate({ id: session.id, userId: session.userId, systemPrompt: session.systemPrompt });
 
@@ -639,7 +639,7 @@ async function gatewayMode(): Promise<void> {
 
   const isDeepSeek = !!process.env.DEEPSEEK_API_KEY;
   const tools: AnyTool[] = [
-    ...builtinTools.filter(t => !isDeepSeek || !['agent', 'task_create', 'task_get', 'task_list', 'task_update', 'task_stop', 'task_output'].includes(t.name)),
+    ...builtinTools.filter(t => !isDeepSeek || !['agent', 'task_create', 'task_get', 'task_list', 'task_update', 'task_stop', 'task_output', 'code_run', 'bash', 'powershell'].includes(t.name)),
     ...pluginManager.allTools,
   ];
 
@@ -792,7 +792,7 @@ async function gatewayMode(): Promise<void> {
     sessionStore,
     options: {
       systemPrompt: '你是一个智能助手，请用中文回答用户的问题。你可以调用工具来帮助用户完成各种任务。'
-        + (isDeepSeek ? '\n\n当用户询问需要最新信息的问题（如新闻、趋势、市场数据等）时，使用 web_search 工具搜索互联网获取最新资讯。对于日期时间等基础信息，使用 datetime 工具获取准确值。不要捏造信息，搜索后基于结果回答。' : ''),
+        + (isDeepSeek ? '\n\n当用户询问需要最新信息的问题时使用 web_search 搜索。有专门工具的操作用专用工具：base64编解码用base64，哈希用hash，UUID用uuid_gen，JSON用json_tool，密码用password_gen，正则用regex_test，颜色用color_tool，单位转换用unit_convert，时间戳用timestamp，翻译用translate。不要用code_run或bash去做这些操作。' : ''),
     },
   });
 
