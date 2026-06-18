@@ -78,7 +78,7 @@ export class MemoryInjector {
 
     // If we still need more, do a general search with the query itself
     if (results.length < max) {
-      const generalMemories = await this.store.search(query, max * 2);
+      const { entries: generalMemories } = await this.store.search({ query, limit: max * 2 });
       for (const mem of generalMemories) {
         if (seen.has(mem.id)) continue;
         seen.add(mem.id);

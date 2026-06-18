@@ -32,14 +32,14 @@ export function createMemoryCommands(memoryStore: MemoryStore | null): CommandDe
       try {
         if (query) {
           // 搜索记忆
-          const results = await memoryStore.search(query, 10);
+          const { entries: results, total } = await memoryStore.search({ query, limit: 10 });
           if (results.length === 0) {
             await ctx.sendMessage(`没有找到与 "${query}" 相关的记忆。`);
             return;
           }
 
           const lines = [
-            `🧠 **记忆搜索结果: "${query}"** (${results.length} 条)`,
+            `🧠 **记忆搜索结果: "${query}"** (${total} 条)`,
             '---',
             ...results.map((mem, i) => {
               const content = mem.content.length > 200
@@ -52,14 +52,14 @@ export function createMemoryCommands(memoryStore: MemoryStore | null): CommandDe
           await ctx.sendMessage(lines.join('\n'));
         } else {
           // 列出最近记忆
-          const recent = await memoryStore.search('', 20);
+          const { entries: recent, total: totalRecent } = await memoryStore.search({ query: '', limit: 20 });
           if (recent.length === 0) {
             await ctx.sendMessage('暂无记忆。');
             return;
           }
 
           const lines = [
-            `🧠 **最近记忆** (共 ${recent.length} 条)`,
+            `🧠 **最近记忆** (共 ${totalRecent} 条)`,
             '---',
             ...recent.map((mem, i) => {
               const content = mem.content.length > 150
