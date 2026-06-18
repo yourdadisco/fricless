@@ -6,6 +6,7 @@ import type { CommandDef } from './Command.js';
 import type { Renderer } from '../render/RenderLayer.js';
 import { Command } from './Command.js';
 import { Session } from '../session/Session.js';
+import { TokenCounter } from './TokenCounter.js';
 
 const logger = pino({ name: 'harness' });
 
@@ -523,14 +524,15 @@ export class Harness {
         await this.renderer.divider();
         await this.renderer.markdown(`**需要确认**: 工具 \`${toolUse.name}\` 需要你的授权才能执行。`);
         await this.renderer.toolUse(toolUse.name, toolUse.input);
-        await this.renderer.text('⏳ 等待确认中...');
-
-        // 模拟等待用户确认
-        // 在生产环境中，此处会挂起等待用户的异步确认信号
-        await new Promise(resolve => setTimeout(resolve, 300));
 
         // TODO: 集成真实用户确认机制（如飞书消息回调或 Terminal 输入）
-        // 目前默认继续执行
+        // 目前根据模式自动确认
+        if (this.renderer.mode === 'terminal') {
+          await this.renderer.text('(终端模式: 自动确认)');
+        } else if (this.renderer.mode === 'feishu') {
+          await this.renderer.text('(飞书模式: 自动确认)');
+        }
+
         await this.renderer.text('✅ 已确认，继续执行。');
         await this.renderer.divider();
       }
@@ -615,9 +617,9 @@ export class Harness {
     return msgs;
   }
 
-  /** 估算 Token 数 */
+  /** 估算 Token 数（委托给 TokenCounter 实现字符感知估算） */
   private countTokens(text: string): number {
-    return Math.ceil(text.length * 0.38) + 4;
+    return TokenCounter.estimate(text) + 4;
   }
 
   /** 获取 Tool 描述（给 Provider 的 Schema） */

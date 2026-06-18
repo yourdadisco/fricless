@@ -22,7 +22,7 @@ export function createStatsCommand(
 ): CommandDef {
   return {
     name: 'stats',
-    aliases: ['statistics', 'status'],
+    aliases: ['statistics'],
     description: '显示系统运行统计信息',
     usage: '/stats',
     async execute(_args: string[], ctx: CommandContext) {

@@ -14,11 +14,13 @@ import pino from 'pino';
 import path from 'node:path';
 import fs from 'node:fs';
 import * as readline from 'node:readline';
+import os from 'node:os';
 import { loadConfig } from './config.js';
 import { AnthropicProvider } from './providers/AnthropicProvider.js';
 import { OpenAIProvider } from './providers/OpenAIProvider.js';
 import { TerminalRenderer } from './render/terminal/TerminalRenderer.js';
 import { Harness } from './harness/Harness.js';
+import { TokenCounter } from './harness/TokenCounter.js';
 import { Session } from './session/Session.js';
 import { InMemorySessionStore } from './session/InMemorySessionStore.js';
 import { SQLiteSessionStore } from './session/SQLiteSessionStore.js';
@@ -391,6 +393,8 @@ async function terminalMode(): Promise<void> {
   const renderer = new TerminalRenderer();
   const metrics = new MetricsCollector();
   const memoryStore = new MemoryStore();
+  let permissionMode = 'auto';
+  let debugModeEnabled = false;
 
   const sessionStore: ISessionStore = config.sessionStore === 'sqlite'
     ? new SQLiteSessionStore(config.sqlitePath)
@@ -430,7 +434,10 @@ async function terminalMode(): Promise<void> {
     createCopyCommand(),
     createCostCommand(),
     createCtxVizCommand(),
-    createDebugCommand(),
+    createDebugCommand(
+      () => debugModeEnabled,
+      (enabled) => { debugModeEnabled = enabled; },
+    ),
     createDesktopCommand(),
     createDiffCommand(),
     createDoctorCommand(),
@@ -443,7 +450,10 @@ async function terminalMode(): Promise<void> {
     createFeedbackCommand(),
     createFilesCommand(),
     createGoodClaudeCommand(),
-    createHistoryCommand(),
+    createHistoryCommand(() => session.messages.map(m => ({
+      role: m.role,
+      content: typeof m.content === 'string' ? m.content : '',
+    }))),
     createHooksCommand(),
     createIdeCommand(),
     createInitCommand(),
@@ -456,8 +466,14 @@ async function terminalMode(): Promise<void> {
     ...createMemoryCommands(memoryStore),
     createMobileCommand(),
     createMockLimitsCommand(),
-    createModeCommand(),
-    createModelCommand(),
+    createModeCommand(
+      () => permissionMode,
+      (mode) => { permissionMode = mode; },
+    ),
+    createModelCommand(() => {
+      const info = provider.getModelInfo();
+      return { name: info.name, vendor: info.vendor, maxContextTokens: info.maxContextTokens };
+    }),
     createNotebookCommand(),
     createOauthRefreshCommand(),
     createOnboardingCommand(),
@@ -492,13 +508,29 @@ async function terminalMode(): Promise<void> {
     createStatusCommand(),
     createStickersCommand(),
     createSummaryCommand(),
-    createSystemCommand(),
+    createSystemCommand(() => ({
+      platform: os.platform(),
+      arch: os.arch(),
+      memory: { free: os.freemem(), total: os.totalmem() },
+      uptime: os.uptime(),
+      nodeVersion: process.version,
+    })),
     createTagCommand(),
     createTaskCommand(),
     createTeleportCommand(),
     createTerminalSetupCommand(),
     createThinkbackCommand(),
-    createTokenCommand(() => null),
+    createTokenCommand(() => {
+      let promptTokens = 0;
+      let completionTokens = 0;
+      for (const msg of session.messages) {
+        const content = typeof msg.content === 'string' ? msg.content : '';
+        const tokens = TokenCounter.estimate(content);
+        if (msg.role === 'assistant') completionTokens += tokens;
+        else promptTokens += tokens;
+      }
+      return { prompt: promptTokens, completion: completionTokens, total: promptTokens + completionTokens };
+    }),
     ...createToolsCommand(() => tools),
     createUpgradeCommand(),
     createUsageCommand(),
@@ -601,6 +633,8 @@ async function gatewayMode(): Promise<void> {
     : new InMemorySessionStore();
 
   const providerFactory = () => createProviderFromEnv();
+  let permissionMode = 'auto';
+  let debugModeEnabled = false;
 
   const allCommands: CommandDef[] = [
     pingCommand.def,
@@ -617,7 +651,10 @@ async function gatewayMode(): Promise<void> {
     createCopyCommand(),
     createCostCommand(),
     createCtxVizCommand(),
-    createDebugCommand(),
+    createDebugCommand(
+      () => debugModeEnabled,
+      (enabled) => { debugModeEnabled = enabled; },
+    ),
     createDesktopCommand(),
     createDiffCommand(),
     createDoctorCommand(),
@@ -630,7 +667,17 @@ async function gatewayMode(): Promise<void> {
     createFeedbackCommand(),
     createFilesCommand(),
     createGoodClaudeCommand(),
-    createHistoryCommand(),
+    createHistoryCommand(() => {
+      const allSessions = sessionStore.getAll();
+      if (allSessions.length > 0) {
+        const latest = allSessions.reduce((a, b) => a.lastActiveAt > b.lastActiveAt ? a : b);
+        return latest.messages.map(m => ({
+          role: m.role,
+          content: typeof m.content === 'string' ? m.content : '',
+        }));
+      }
+      return [];
+    }),
     createHooksCommand(),
     createIdeCommand(),
     createInitCommand(),
@@ -643,8 +690,15 @@ async function gatewayMode(): Promise<void> {
     ...createMemoryCommands(null),
     createMobileCommand(),
     createMockLimitsCommand(),
-    createModeCommand(),
-    createModelCommand(),
+    createModeCommand(
+      () => permissionMode,
+      (mode) => { permissionMode = mode; },
+    ),
+    createModelCommand(() => {
+      const p = providerFactory();
+      const info = p.getModelInfo();
+      return { name: info.name, vendor: info.vendor, maxContextTokens: info.maxContextTokens };
+    }),
     createNotebookCommand(),
     createOauthRefreshCommand(),
     createOnboardingCommand(),
@@ -679,13 +733,33 @@ async function gatewayMode(): Promise<void> {
     createStatusCommand(),
     createStickersCommand(),
     createSummaryCommand(),
-    createSystemCommand(),
+    createSystemCommand(() => ({
+      platform: os.platform(),
+      arch: os.arch(),
+      memory: { free: os.freemem(), total: os.totalmem() },
+      uptime: os.uptime(),
+      nodeVersion: process.version,
+    })),
     createTagCommand(),
     createTaskCommand(),
     createTeleportCommand(),
     createTerminalSetupCommand(),
     createThinkbackCommand(),
-    createTokenCommand(),
+    createTokenCommand(() => {
+      let promptTokens = 0;
+      let completionTokens = 0;
+      const allSessions = sessionStore.getAll();
+      for (const s of allSessions) {
+        for (const msg of s.messages) {
+          const content = typeof msg.content === 'string' ? msg.content : '';
+          const tokens = TokenCounter.estimate(content);
+          if (msg.role === 'assistant') completionTokens += tokens;
+          else promptTokens += tokens;
+        }
+      }
+      if (promptTokens === 0 && completionTokens === 0) return null;
+      return { prompt: promptTokens, completion: completionTokens, total: promptTokens + completionTokens };
+    }),
     ...createToolsCommand(() => tools),
     createUpgradeCommand(),
     createUsageCommand(),

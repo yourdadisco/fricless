@@ -15,8 +15,8 @@ import type { CommandDef, CommandContext } from '../Command.js';
  * @param setDebug - 设置调试状态
  */
 export function createDebugCommand(
-  isDebug?: () => boolean,
-  setDebug?: (enabled: boolean) => void,
+  isDebug: () => boolean,
+  setDebug: (enabled: boolean) => void,
 ): CommandDef {
   return {
     name: 'debug',
@@ -24,7 +24,7 @@ export function createDebugCommand(
     description: '查看或切换调试模式',
     usage: '/debug [on|off]',
     async execute(args: string[], ctx: CommandContext) {
-      const current = isDebug?.() ?? false;
+      const current = isDebug();
 
       if (args.length === 0) {
         const status = current ? '🟢 已开启' : '🔴 已关闭';
@@ -52,11 +52,6 @@ export function createDebugCommand(
         newState = false;
       } else {
         await ctx.sendMessage(`无效参数 "${arg}"。请使用 \`on\` 或 \`off\`。`);
-        return;
-      }
-
-      if (!setDebug) {
-        await ctx.sendMessage('当前环境不支持切换调试模式。');
         return;
       }
 

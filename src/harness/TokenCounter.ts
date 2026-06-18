@@ -1,16 +1,29 @@
 import type { Message } from '../types/index.js';
 
 export class TokenCounter {
-  private static readonly RATIOS: Record<string, number> = {
-    'claude': 0.38,
-    'gpt-4': 0.35,
-    'deepseek': 0.40,
-    'qwen': 0.45,
-  };
+  /**
+   * 估算文本的 Token 数量，对中文进行加权处理。
+   *
+   * - 中文字符（CJK 统一表意文字等）: ~1.5 tokens/char
+   * - 英文及其他字符: ~0.25 tokens/char
+   * - 混合文本自动检测并按比例估算
+   */
+  static estimate(text: string, _model: string = 'claude'): number {
+    let chineseCount = 0;
+    let otherCount = 0;
 
-  static estimate(text: string, model: string = 'claude'): number {
-    const ratio = this.RATIOS[model] ?? 0.38;
-    return Math.ceil(text.length * ratio);
+    for (const char of text) {
+      // CJK Unified Ideographs, Extension A, and CJK Compatibility Ideographs
+      if (/[一-鿿㐀-䶿豈-﫿]/.test(char)) {
+        chineseCount++;
+      } else {
+        otherCount++;
+      }
+    }
+
+    // Chinese chars: ~1.5 tokens per char, English/other: ~0.25 tokens per char
+    const tokens = chineseCount * 1.5 + otherCount * 0.25;
+    return Math.ceil(tokens);
   }
 
   static countMessages(messages: Message[], model: string = 'claude'): number {
