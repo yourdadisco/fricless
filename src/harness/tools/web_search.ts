@@ -93,58 +93,61 @@ async function searchWithSerpApi(
   }
 }
 
-// ── DuckDuckGo ────────────────────────────────────────
+// ── DuckDuckGo (HTML 搜索) ──────────────────────────
+// DuckDuckGo 的 JSON API 已废弃（始终返回空结果）。
+// 改用 HTML 版搜索页面：https://html.duckduckgo.com/html/
 
 async function searchWithDuckDuckGo(
   query: string,
   count: number,
 ): Promise<string> {
-  const url = new URL('https://api.duckduckgo.com/');
-  url.searchParams.set('q', query);
-  url.searchParams.set('format', 'json');
-  url.searchParams.set('no_html', '1');
-  url.searchParams.set('skip_disambig', '1');
-
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15_000);
 
   try {
-    const res = await fetch(url.toString(), {
+    const res = await fetch('https://html.duckduckgo.com/html/', {
+      method: 'POST',
+      body: new URLSearchParams({ q: query }),
       signal: controller.signal,
       headers: {
-        Accept: 'application/json',
-        'User-Agent':
-          'Mozilla/5.0 (compatible; FriclessBot/1.0; +https://fricless.dev)',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Content-Type': 'application/x-www-form-urlencoded',
       },
     });
 
     if (!res.ok) {
-      throw new Error(`DuckDuckGo 返回 HTTP ${res.status}: ${res.statusText}`);
+      throw new Error(`DuckDuckGo 返回 HTTP ${res.status}`);
     }
 
-    const body = await res.json();
+    const html = await res.text();
     const results: SearchResult[] = [];
 
-    // Abstract / Answer
-    if (body.AbstractText) {
-      results.push({
-        title: body.Heading || '摘要',
-        snippet: body.AbstractText,
-        link: body.AbstractURL || '',
+    // 从 HTML 中提取搜索结果（DuckDuckGo HTML 版格式）
+    // 每条结果格式: <a rel="nofollow" class="result__a" href="...">标题</a>
+    // <a class="result__snippet" ...>摘要</a>
+    const linkRegex = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
+    const snippetRegex = /<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
+
+    const links: Array<{ href: string; title: string }> = [];
+    let m;
+    while ((m = linkRegex.exec(html)) !== null && links.length < count) {
+      links.push({
+        href: m[1].replace(/\/\/duckduckgo\.com\/l\/\?uddg=/, ''),
+        title: m[2].replace(/<[^>]+>/g, '').trim(),
       });
     }
 
-    // RelatedTopics
-    const topics: unknown[] = body.RelatedTopics ?? [];
-    for (const item of topics) {
-      if (results.length >= count) break;
-      if (isTopicResult(item)) {
-        results.push({
-          title: item.Text.split(' - ')[0] || item.Text,
-          snippet: item.Text,
-          link: item.FirstURL,
-        });
-      }
+    const snippets: string[] = [];
+    while ((m = snippetRegex.exec(html)) !== null && snippets.length < count) {
+      snippets.push(m[1].replace(/<[^>]+>/g, '').trim());
+    }
+
+    for (let i = 0; i < Math.min(links.length, count); i++) {
+      results.push({
+        title: links[i]?.title || `结果 ${i + 1}`,
+        snippet: snippets[i] || '',
+        link: links[i]?.href || '',
+      });
     }
 
     if (results.length === 0) {
@@ -152,25 +155,12 @@ async function searchWithDuckDuckGo(
     }
 
     return formatResults(results, 'DuckDuckGo');
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return `搜索失败: ${msg}`;
   } finally {
     clearTimeout(timeout);
   }
-}
-
-/** DuckDuckGo API 单个结果的结构 */
-interface DuckDuckGoTopic {
-  FirstURL: string;
-  Text: string;
-  Result?: string;
-}
-
-function isTopicResult(value: unknown): value is DuckDuckGoTopic {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'FirstURL' in value &&
-    'Text' in value
-  );
 }
 
 // ── 输出格式化 ────────────────────────────────────────

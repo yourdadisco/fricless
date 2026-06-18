@@ -269,7 +269,7 @@ function sanitizeSchema(schema: unknown): Record<string, unknown> {
       if (typeof val === 'object' && val !== null) {
         const prop = val as Record<string, unknown>;
         delete prop.default;
-        delete prop.description;
+        // 保留 description：LLM 需要参数说明才能正确填写
         if (prop.additionalProperties === true) delete prop.additionalProperties;
         // Zod 对 positive() 生成 exclusiveMinimum: true，OpenAI 只接受 number
         if (prop.exclusiveMinimum === true) delete prop.exclusiveMinimum;
