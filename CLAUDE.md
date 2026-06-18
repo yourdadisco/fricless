@@ -123,6 +123,19 @@
 
 ### ADR-015: 双模入口
 
+### ADR-016: 状态机对话循环（Claude Code 完整移植）
+
+**Decision**: `runConversationLoop` 从简单 while 循环重写为 Claude Code 风格的 State Machine：
+- 7 种 Continue 原因（`next_turn`、`max_output_tokens_recovery`、`max_output_tokens_escalate`、`collapse_drain_retry`、`reactive_compact_retry`、`stop_hook_blocking`、`token_budget_continuation`）
+- 10 种 Terminal 原因（`completed`、`max_turns`、`model_error`、`blocking_limit`、`prompt_too_long`、`image_error`、`aborted_streaming`、`aborted_tools`、`stop_hook_prevented`、`hook_stopped`）
+- `ConversationState` 显式状态跟踪（`turnCount`、`maxOutputTokensRecoveryCount`、`hasAttemptedReactiveCompact`、`maxOutputTokensOverride`）
+- Token 预算预检查（`blocking_limit`），API 调用前提前阻断
+- `StreamingToolExecutor` 流式并行工具执行器（addTool → processQueue → getCompletedResults/getRemainingResults）
+- `MAX_RECOVERY_ATTEMPTS = 3`、`ESCALATED_MAX_TOKENS = 64000` 等常量对齐
+- `TOOL_DEFAULTS` 对齐（`isReadOnly` 默认 `false`，与 Claude Code 一致）
+
+**Rationale**: 直接照抄 Claude Code 的 queryLoop 模式，确保架构一致。
+
 **Decision**: `src/index.ts`（飞书） + `src/cli.ts`（终端）两个入口点。`src/cli.ts` 使用 `TerminalChannel` + `TerminalRenderer` 实现 REPL 交互；`src/index.ts` 使用 `FeishuChannel` + `FeishuRenderer` 对接飞书。两者共享 `Gateway` + `Harness` 同一套核心逻辑。
 
 **Rationale**: 同一套业务逻辑，两种交互界面。终端入口用于本地调试和快速验证，飞书入口用于生产部署。共享 Harness 确保行为一致。
@@ -138,6 +151,7 @@
 | **P3** | 5 个内置 Tool + 权限框架 + SQLite 持久化 + TokenCounter + RateLimiter | ✅ 完成 |
 | **P4** | ProviderRegistry + FallbackProvider + RetryProvider + Coordinator + Agent | ✅ 完成 |
 | **P5** | Web 面板 (Express API) + Bridge (WS 远程控制) + 插件系统 + MetricsCollector | ✅ 完成 |
+| **P6** | Claude Code Harness 深度对齐 — 状态机 + StreamingToolExecutor + TOOL_DEFAULTS + 完整 Transition 系统 | ✅ 完成 |
 
 ---
 
