@@ -12,8 +12,7 @@ const logger = pino({ level: process.env.LOG_LEVEL || 'info', name: 'harness' })
 
 // Claude Code pattern: recovery attempt limit
 const MAX_RECOVERY_ATTEMPTS = 3;
-// Claude Code pattern: max consecutive search tools before forcing answer
-const MAX_CONSECUTIVE_SEARCHES = 3;
+// Claude Code 没有限制成功搜索次数，只限制错误恢复。
 
 export interface HarnessOptions {
   /** 系统提示词 */
@@ -166,7 +165,6 @@ export class Harness {
   private async runConversationLoop(): Promise<void> {
     let roundtrips = 0;
     let consecutiveEmptyTools = 0;
-    let consecutiveSearchTools = 0;
 
     while (roundtrips < this.options.maxToolRoundtrips) {
       roundtrips++;
@@ -201,29 +199,8 @@ export class Harness {
       // Step 2: 分组并执行所有 Tool Call
       const toolResults = await this.executeAllToolCalls(pendingToolUses);
 
-      // 循环检测：连续搜索/抓取超过 3 次则强制回答
-      const searchTools = ['web_search', 'web_browser', 'web_fetch'];
-      const searchCount = toolResults.filter(tr => searchTools.includes(tr.name)).length;
-      if (searchCount > 0) {
-        consecutiveSearchTools += searchCount;
-        if (consecutiveSearchTools >= 4) {
-          await this.renderer.text('我已有足够信息，现在为你整理回答。');
-          const finalStream = this.provider.stream(
-            this.getContextMessages().concat([{ role: 'assistant', content: '基于搜索到的信息，综合回答用户的问题。' }, { role: 'user', content: '请根据已有的搜索结果给出完整回答，不要调用任何工具。' }]),
-            []
-          );
-          let finalContent = '';
-          for await (const ev of finalStream) {
-            if (ev.type === 'text') { finalContent += ev.delta; await this.renderer.streamText(ev.delta, false); }
-            if (ev.type === 'done') { await this.renderer.streamText('', true); this.session.addMessage({ role: 'assistant', content: finalContent }); return; }
-          }
-          return;
-        }
-      } else {
-        consecutiveSearchTools = 0;
-      }
-
-      // 循环检测：连续2轮工具都返回空结果或错误则终止
+      // Claude Code pattern: 连续空结果/错误检测（不是限制搜索次数）
+      // 参考 Claude Code 的 MAX_OUTPUT_TOKENS_RECOVERY_LIMIT = 3
       const isEmptyResult = (r: string) => !r || r.trim().length < 5 || r.includes('输入校验失败') || r.includes('搜索失败');
       const allEmpty = toolResults.every(tr => isEmptyResult(tr.result) || tr.isError);
       if (allEmpty) {
