@@ -122,6 +122,7 @@ import { PluginManager } from './plugins/PluginManager.js';
 import { startServer } from './server/index.js';
 import { BridgeServer } from './bridge/BridgeServer.js';
 import { MemoryStore } from './memory/MemoryStore.js';
+import { ObsidianBridge } from './memory/ObsidianBridge.js';
 import { MemoryExtractor } from './memory/MemoryExtractor.js';
 import { MemoryInjector } from './memory/MemoryInjector.js';
 import type { AnyTool } from './harness/Tool.js';
@@ -393,6 +394,10 @@ async function terminalMode(): Promise<void> {
   const renderer = new TerminalRenderer();
   const metrics = new MetricsCollector();
   const memoryStore = new MemoryStore();
+  const obsidianBridge = new ObsidianBridge(memoryStore, { outputDir: './fricless-memory', autoSync: true });
+  // 首次启动时从 Obsidian 文件导入已有记忆
+  obsidianBridge.importAllFromFiles().catch(() => {});
+
   let permissionMode = 'auto';
   let debugModeEnabled = false;
 
