@@ -65,6 +65,13 @@ export const webFetchTool = defineTool({
     maxChars: z.number().optional().describe('返回的最大字符数（默认8000）'),
   }),
   isReadOnly: true,
+  validateInput(input: unknown) {
+    const url = (input as Record<string, unknown>)?.url;
+    if (!url || (typeof url === 'string' && !url.trim())) {
+      return { valid: false, error: 'URL 不能为空，请提供完整的网页地址' };
+    }
+    return { valid: true };
+  },
   async call(input) {
     const { url, maxChars = 8000 } = input as { url: string; maxChars?: number };
 

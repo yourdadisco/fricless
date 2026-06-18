@@ -218,6 +218,17 @@ src/
 
 ---
 
+## TUI 调试承诺
+
+> 本项目的调试遵循"无限循环调试"原则：
+> 1. 每个 Bug 必须通过 TUI 实测验证修复
+> 2. 修复后运行完整测试套件（`npm test`）
+> 3. 测试通过后推送到 GitHub
+> 4. 让用户验证，如果仍有问题则回到步骤 1
+> 5. 绝不推卸责任让用户自己跑
+
+---
+
 ## 源码参考
 
 - **OpenClaw**: https://github.com/openxjarvis/openclaw-python
