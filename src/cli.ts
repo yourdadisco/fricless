@@ -394,9 +394,9 @@ async function terminalMode(): Promise<void> {
   const renderer = new TerminalRenderer();
   const metrics = new MetricsCollector();
   const memoryStore = new MemoryStore();
-  const obsidianBridge = new ObsidianBridge(memoryStore, { outputDir: './fricless-memory', autoSync: true });
-  // 首次启动时从 Obsidian 文件导入已有记忆
-  obsidianBridge.importAllFromFiles().catch(() => {});
+  const obsidianBridge = new ObsidianBridge(memoryStore, { outputDir: './fricless-memory', gitHistory: false });
+  obsidianBridge.syncAllToFiles().catch(() => {});  // 初始全量同步
+  obsidianBridge.startWatching();                   // 实时文件监听
 
   let permissionMode = 'auto';
   let debugModeEnabled = false;
