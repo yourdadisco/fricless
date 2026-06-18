@@ -9,6 +9,7 @@ import { Command } from './Command.js';
 import { Session } from '../session/Session.js';
 import { TokenCounter } from './TokenCounter.js';
 import { StreamingToolExecutor } from './StreamingToolExecutor.js';
+import { shouldAutoCompact, compactConversation } from './compact/index.js';
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info', name: 'harness' });
 
@@ -257,7 +258,23 @@ export class Harness {
         return { reason: 'blocking_limit', turnCount: state.turnCount };
       }
 
-      // ── 4b. 从 AI Provider 流式获取响应（含自动重试） ────
+      // ── 4b. 自动压缩（Claude Code: autoCompact） ──────────
+      if (estimatedTokens > this.options.maxContextTokens * 0.6) {
+        try {
+          const result = await compactConversation(this.session.messages, this.provider, 8);
+          if (result.summaryMessages.length > 0 && result.postCompactTokenCount < estimatedTokens) {
+            this.session.messages = result.messagesToKeep || [];
+            if (result.summaryMessages.length > 0) {
+              this.session.messages.unshift(result.summaryMessages[0]);
+            }
+            await this.renderer.text(`(对话已压缩: ${Math.round((1 - result.postCompactTokenCount / estimatedTokens) * 100)}% 空间释放)`);
+            // 重新获取上下文
+            continue;
+          }
+        } catch { /* 压缩失败不影响主流程 */ }
+      }
+
+      // ── 4c. 从 AI Provider 流式获取响应（含自动重试） ────
       const { assistantContent, streamError, rawError } =
         await this.streamWithRetry(contextMessages, toolDescriptors, executor);
 
