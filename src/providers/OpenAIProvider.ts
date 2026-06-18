@@ -35,39 +35,63 @@ export class OpenAIProvider implements AIProvider {
     for (let i = 0; i < nonSystem.length; i++) {
       const m = nonSystem[i];
 
-      if (m.role === 'tool') {
+      // tool 消息：由对应的 assistant 消息处理，跳过
+      if (m.role === 'tool') continue;
+
+      // user 消息：直接添加
+      if (m.role === 'user') {
         openaiMessages.push({
-          role: 'tool',
-          tool_call_id: m.toolCallId ?? '',
-          content: typeof m.content === 'string' ? m.content : this.contentBlocksToText(m.content),
+          role: 'user',
+          content: this.messageContentToOpenAI(m),
         } as OpenAI.Chat.Completions.ChatCompletionMessageParam);
         continue;
       }
 
-      // 检查后面是否跟着 tool 消息 → 需要添加 tool_calls 到 assistant 消息
-      const nextMsg = nonSystem[i + 1];
-      const hasFollowingTool = nextMsg?.role === 'tool' && nextMsg.toolCallId;
+      // assistant 消息：检查后面是否跟着 tool 消息
+      if (m.role === 'assistant') {
+        // 收集所有连续的工具调用
+        const toolCallInfos: Array<{ id: string; name: string }> = [];
+        let j = i + 1;
+        while (j < nonSystem.length && nonSystem[j].role === 'tool') {
+          if (nonSystem[j].toolCallId && nonSystem[j].toolName) {
+            toolCallInfos.push({ id: nonSystem[j].toolCallId!, name: nonSystem[j].toolName! });
+          }
+          j++;
+        }
 
-      if (m.role === 'assistant' && hasFollowingTool) {
+        if (toolCallInfos.length > 0) {
+          // 有 tool_calls：添加 assistant 消息 + 所有 tool 结果
+          openaiMessages.push({
+            role: 'assistant',
+            content: this.messageContentToOpenAI(m),
+            tool_calls: toolCallInfos.map(tc => ({
+              id: tc.id,
+              type: 'function' as const,
+              function: { name: tc.name, arguments: '{}' },
+            })),
+          } as OpenAI.Chat.Completions.ChatCompletionMessageParam);
+
+          // 添加 tool 结果消息
+          for (let k = i + 1; k < j; k++) {
+            const toolMsg = nonSystem[k];
+            openaiMessages.push({
+              role: 'tool',
+              tool_call_id: toolMsg.toolCallId ?? '',
+              content: typeof toolMsg.content === 'string' ? toolMsg.content : this.contentBlocksToText(toolMsg.content),
+            } as OpenAI.Chat.Completions.ChatCompletionMessageParam);
+          }
+          // 跳过已处理的 tool 消息
+          i = j - 1;
+          continue;
+        }
+
+        // 普通 assistant 消息（无 tool_calls）
         openaiMessages.push({
           role: 'assistant',
           content: this.messageContentToOpenAI(m),
-          tool_calls: [{
-            id: nextMsg.toolCallId!,
-            type: 'function',
-            function: {
-              name: nextMsg.toolName || '',
-              arguments: '{}',
-            },
-          }],
         } as OpenAI.Chat.Completions.ChatCompletionMessageParam);
         continue;
       }
-
-      openaiMessages.push({
-        role: m.role as 'user' | 'assistant',
-        content: this.messageContentToOpenAI(m),
-      } as OpenAI.Chat.Completions.ChatCompletionMessageParam);
     }
 
     const systemMsg = messages.find(m => m.role === 'system');
