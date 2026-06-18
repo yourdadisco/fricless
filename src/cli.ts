@@ -584,10 +584,27 @@ async function terminalMode(): Promise<void> {
     session.systemPrompt += '\n\n' + (enriched[0].content as string);
   }
 
-  // 简洁启动（类似 Claude Code）
+  // 启动画面（类似 Claude Code）
   const providerInfo = provider?.getModelInfo?.();
   const modelName = providerInfo?.name || 'unknown';
-  await renderer.markdown(`**Fricless** v${VERSION}  —  \`/help\` for commands  —  ${modelName}`);
+  const toolCount = tools.length;
+  console.log(`${''}
+  ╭──────────────────────────────────────╮
+  │                                      │
+  │   ░▒▓▒░░▒▓█▓▒░░▒▓██████▓▒░           │
+  │   ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░       │
+  │   ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░              │
+  │   ░▒▓█▓▒░░▒▓█▓▒░▒▓████▓▒░           │
+  │   ░▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░             │
+  │   ░▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░             │
+  │   ░▒▓██████▓▒░░ ░▒▓█▓▒░              │
+  │                                      │
+  │   Fricless v${VERSION.padEnd(8)}              │
+  │   ${modelName.padEnd(35)}│
+  │   ${String(toolCount).padStart(2)} tools · \`/help\` for commands     │
+  │                                      │
+  ╰──────────────────────────────────────╯`);
+  console.log('');
 
   function setupReadline(rl: readline.Interface) {
     rl.on('line', async (line: string) => {
