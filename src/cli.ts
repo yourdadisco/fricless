@@ -587,27 +587,19 @@ async function terminalMode(): Promise<void> {
   // 启动画面
   const providerVendor = provider?.vendor || 'unknown';
   const envModel = process.env[`${providerVendor.toUpperCase()}_MODEL`] || process.env.ANTHROPIC_MODEL || 'unknown';
-  const cwd = process.cwd();
-  const W = 76;
+  const W = 70;
   const S = (n: number) => ' '.repeat(Math.max(0, n));
+  const line = (left: string, right = '') => `│ ${left}${S(W - 5 - left.length - right.length)}${right} │`;
   const box = [
     `╭${'─'.repeat(W - 2)}╮`,
-    `│${S(W - 2)}│`,
-    `│${S(16)}   .__    .__       .___${S(26)}│`,
-    `│${S(16)}  |__| __| _/____   _/ __ \\${S(20)}│`,
-    `│${S(16)}  |  |/ __ |/ __ \\  \\  ___/${S(21)}│`,
-    `│${S(16)}  |  / /_/ \\  ___/   \\___  \\${S(20)}│`,
-    `│${S(16)}  |__\\____ |\\___  > /____  /${S(21)}│`,
-    `│${S(16)}         \\/    \\/       \\/${S(25)}│`,
-    `│${S(W - 2)}│`,
-    `│${S(6)}Fricless v${VERSION}${S(W - 16 - VERSION.length)}│`,
-    `│${S(6)}${envModel}${S(W - 8 - envModel.length)}│`,
-    `│${S(6)}${cwd}${S(Math.max(1, W - 8 - cwd.length))}│`,
-    `│${S(W - 2)}│`,
+    line(''),
+    line('Fricless v' + VERSION),
+    line(providerVendor + ' / ' + envModel),
+    line('/help for commands', 'github.com/yourdadisco/fricless'),
+    line(''),
     `╰${'─'.repeat(W - 2)}╯`,
   ];
   console.log(box.join('\n'));
-  console.log('');
 
   function setupReadline(rl: readline.Interface) {
     rl.on('line', async (line: string) => {
