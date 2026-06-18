@@ -5,9 +5,16 @@ export const agentTool = defineTool({
   name: 'agent',
   description: '创建一个子 Agent 执行指定任务。子 Agent 拥有独立的对话上下文和工具集。',
   inputSchema: z.object({
-    task: z.string().describe('子 Agent 需要完成的任务描述'),
+    task: z.string().min(2, '任务描述不能为空').describe('子 Agent 需要完成的任务描述'),
     tools: z.array(z.string()).optional().describe('子 Agent 可用的工具列表（默认全部）'),
   }),
+  validateInput(input: unknown) {
+    const task = (input as Record<string, unknown>)?.task;
+    if (!task || (typeof task === 'string' && task.trim().length < 2)) {
+      return { valid: false, error: '任务描述不能为空，请提供具体的任务内容' };
+    }
+    return { valid: true };
+  },
   isReadOnly: true,
   isConcurrencySafe: false,
   isDestructive: false,
