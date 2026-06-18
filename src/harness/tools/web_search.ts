@@ -1,54 +1,77 @@
 import { z } from 'zod';
 import { defineTool } from '../Tool.js';
 
-// ── 类型 ──────────────────────────────────────────────
-
 interface SearchResult {
   title: string;
   snippet: string;
   link: string;
 }
 
-// ── Tool 定义 ─────────────────────────────────────────
-
+/**
+ * 互联网搜索工具
+ *
+ * 使用 SerpAPI (推荐，需配置 SERPAPI_API_KEY) 作为主力搜索后端。
+ * SerpAPI 提供每月100次免费查询额度 (https://serpapi.com)。
+ *
+ * 未配置 SerpAPI 时尝试免费后端:
+ *   1. DuckDuckGo HTML 搜索 (可能不稳定)
+ *   2. Bing HTML 搜索 (备选)
+ */
 export const webSearchTool = defineTool({
   name: 'web_search',
-  description: '搜索互联网获取最新信息。当需要了解当前事件、人物、技术、新闻等内容时使用。',
+  description: '搜索互联网获取最新信息。用于了解当前事件、人物、技术、新闻等内容。',
   inputSchema: z.object({
-    query: z.string().describe('搜索关键词'),
-    count: z.number().optional().describe('返回结果数量（默认5条）'),
+    query: z.string().min(2).describe('搜索关键词，要求具体精确，如"2025年AI智能硬件市场规模趋势"'),
+    count: z.number().min(1).max(20).optional().describe('返回结果数量（默认5）'),
   }),
+  validateInput(input: unknown) {
+    const q = (input as Record<string, unknown>)?.query;
+    if (!q || (typeof q === 'string' && q.trim().length < 2)) {
+      return { valid: false, error: '搜索关键词不能为空，请提供具体的关键词' };
+    }
+    return { valid: true };
+  },
   isReadOnly: true,
+  isConcurrencySafe: true,
+  searchHint: 'search web internet news information google bing',
   async call(input) {
     const { query, count = 5 } = input as { query: string; count?: number };
 
-    // Try SerpAPI first, fallback to DuckDuckGo
-    const serpApiKey = process.env.SERPAPI_API_KEY;
+    // 多后端依次尝试：SerpAPI → DuckDuckGo → Bing
+    const backends: Array<() => Promise<{ data: string }>> = [];
 
-    try {
-      if (serpApiKey) {
-        const data = await searchWithSerpApi(query, count, serpApiKey);
-        return { data };
-      }
-      const data = await searchWithDuckDuckGo(query, count);
-      return { data };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : '未知错误';
-      return {
-        data: `搜索失败: ${message}`,
-        isError: true,
-      };
+    const serpApiKey = process.env.SERPAPI_API_KEY;
+    if (serpApiKey) {
+      backends.push(() => searchWithSerpApi(query, count, serpApiKey));
     }
+    backends.push(() => searchWithDuckDuckGo(query, count));
+    backends.push(() => searchWithBing(query, count));
+
+    let lastError = '所有搜索引擎均不可用';
+    for (let i = 0; i < backends.length; i++) {
+      try {
+        const result = await backends[i]();
+        if (result.data.includes('未找到相关结果') && i < backends.length - 1) {
+          lastError = 'empty results';
+          continue;
+        }
+        return result;
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : String(err);
+        if (i < backends.length - 1) continue;
+      }
+    }
+
+    return {
+      data: '搜索失败。建议前往 https://serpapi.com 注册免费账号，将 SERPAPI_API_KEY 添加到 .env 文件以获得稳定搜索能力。',
+      isError: true,
+    };
   },
 });
 
 // ── SerpAPI ───────────────────────────────────────────
 
-async function searchWithSerpApi(
-  query: string,
-  count: number,
-  apiKey: string,
-): Promise<string> {
+async function searchWithSerpApi(query: string, count: number, apiKey: string): Promise<{ data: string }> {
   const url = new URL('https://serpapi.com/search');
   url.searchParams.set('q', query);
   url.searchParams.set('api_key', apiKey);
@@ -61,46 +84,31 @@ async function searchWithSerpApi(
   try {
     const res = await fetch(url.toString(), {
       signal: controller.signal,
-      headers: {
-        Accept: 'application/json',
-        'User-Agent':
-          'Mozilla/5.0 (compatible; FriclessBot/1.0; +https://fricless.dev)',
-      },
+      headers: { 'User-Agent': 'FriclessBot/1.0' },
     });
-
-    if (!res.ok) {
-      throw new Error(`SerpAPI 返回 HTTP ${res.status}: ${res.statusText}`);
-    }
-
+    if (!res.ok) throw new Error(`SerpAPI HTTP ${res.status}`);
     const body = await res.json();
+    if (body.error) throw new Error(`SerpAPI: ${body.error}`);
 
-    if (body.error) {
-      throw new Error(`SerpAPI 错误: ${body.error}`);
-    }
+    const results: SearchResult[] = (body.organic_results ?? []).slice(0, count);
+    if (results.length === 0) return { data: '未找到相关结果。' };
 
-    const results: SearchResult[] = (body.organic_results ?? []).slice(
-      0,
-      count,
-    );
-
-    if (results.length === 0) {
-      return '未找到相关结果。';
-    }
-
-    return formatResults(results, 'Google (SerpAPI)');
+    const lines = ['--- Google (SerpAPI) 搜索结果 ---', ''];
+    results.forEach((r, i) => {
+      lines.push(`${i + 1}. ${r.title}`);
+      lines.push(`   ${r.snippet}`);
+      if (r.link) lines.push(`   \`${r.link}\``);
+      lines.push('');
+    });
+    return { data: lines.join('\n').trim() };
   } finally {
     clearTimeout(timeout);
   }
 }
 
-// ── DuckDuckGo (HTML 搜索) ──────────────────────────
-// DuckDuckGo 的 JSON API 已废弃（始终返回空结果）。
-// 改用 HTML 版搜索页面：https://html.duckduckgo.com/html/
+// ── DuckDuckGo HTML ───────────────────────────────────
 
-async function searchWithDuckDuckGo(
-  query: string,
-  count: number,
-): Promise<string> {
+async function searchWithDuckDuckGo(query: string, count: number): Promise<{ data: string }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15_000);
 
@@ -114,72 +122,88 @@ async function searchWithDuckDuckGo(
         'Content-Type': 'application/x-www-form-urlencoded',
       },
     });
-
-    if (!res.ok) {
-      throw new Error(`DuckDuckGo 返回 HTTP ${res.status}`);
-    }
+    if (!res.ok) throw new Error(`DuckDuckGo HTTP ${res.status}`);
 
     const html = await res.text();
     const results: SearchResult[] = [];
 
-    // 从 HTML 中提取搜索结果（DuckDuckGo HTML 版格式）
-    // 每条结果格式: <a rel="nofollow" class="result__a" href="...">标题</a>
-    // <a class="result__snippet" ...>摘要</a>
-    const linkRegex = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g;
+    // DuckDuckGo HTML 搜索结果格式
+    const linkRegex = /<a[^>]+class="result__a"[^>]+href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/g;
     const snippetRegex = /<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
 
     const links: Array<{ href: string; title: string }> = [];
     let m;
     while ((m = linkRegex.exec(html)) !== null && links.length < count) {
-      links.push({
-        href: m[1].replace(/\/\/duckduckgo\.com\/l\/\?uddg=/, ''),
-        title: m[2].replace(/<[^>]+>/g, '').trim(),
-      });
+      links.push({ href: m[1], title: m[2].replace(/<[^>]+>/g, '').trim() });
     }
-
     const snippets: string[] = [];
     while ((m = snippetRegex.exec(html)) !== null && snippets.length < count) {
       snippets.push(m[1].replace(/<[^>]+>/g, '').trim());
     }
-
     for (let i = 0; i < Math.min(links.length, count); i++) {
-      results.push({
-        title: links[i]?.title || `结果 ${i + 1}`,
-        snippet: snippets[i] || '',
-        link: links[i]?.href || '',
-      });
+      results.push({ title: links[i]?.title || '', snippet: snippets[i] || '', link: links[i]?.href || '' });
     }
 
     if (results.length === 0) {
-      return '未找到相关结果。';
+      // DuckDuckGo 可能返回验证页面，抛异常让调用方尝试下一后端
+      throw new Error('DuckDuckGo 未返回结果（可能触发安全验证）');
     }
-
-    return formatResults(results, 'DuckDuckGo');
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return `搜索失败: ${msg}`;
+    return { data: formatResults(results, 'DuckDuckGo') };
   } finally {
     clearTimeout(timeout);
   }
 }
 
-// ── 输出格式化 ────────────────────────────────────────
+// ── Bing HTML ────────────────────────────────────────
+
+async function searchWithBing(query: string, count: number): Promise<{ data: string }> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+
+  try {
+    const res = await fetch(
+      `https://www.bing.com/search?q=${encodeURIComponent(query)}`,
+      {
+        signal: controller.signal,
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+      },
+    );
+    if (!res.ok) throw new Error(`Bing HTTP ${res.status}`);
+
+    const html = await res.text();
+    const results: SearchResult[] = [];
+
+    // Bing 搜索结果格式
+    const itemRegex = /<li class="b_algo"[^>]*>([\s\S]*?)<\/li>/g;
+    let itemMatch;
+    while ((itemMatch = itemRegex.exec(html)) !== null && results.length < count) {
+      const item = itemMatch[1];
+      const h = item.match(/<a[^>]+href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/i);
+      const p = item.match(/<p[^>]*>([\s\S]*?)<\/p>/i);
+      if (h) {
+        results.push({
+          title: h[2].replace(/<[^>]+>/g, '').trim(),
+          snippet: p ? p[1].replace(/<[^>]+>/g, '').trim() : '',
+          link: h[1],
+        });
+      }
+    }
+    if (results.length === 0) throw new Error('Bing 未返回可解析的结果');
+    return { data: formatResults(results, 'Bing') };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// ── 格式化 ────────────────────────────────────────────
 
 function formatResults(results: SearchResult[], source: string): string {
-  const lines: string[] = [
-    `--- ${source} 搜索结果 ---`,
-    '',
-  ];
-
-  for (let i = 0; i < results.length; i++) {
-    const r = results[i];
+  const lines: string[] = [`--- ${source} 搜索结果 ---`, ''];
+  results.forEach((r, i) => {
     lines.push(`${i + 1}. ${r.title}`);
-    lines.push(`   ${r.snippet}`);
-    if (r.link) {
-      lines.push(`   ${'`'}${r.link}${'`'}`);
-    }
+    if (r.snippet) lines.push(`   ${r.snippet}`);
+    if (r.link) lines.push(`   \`${r.link}\``);
     lines.push('');
-  }
-
+  });
   return lines.join('\n').trim();
 }
