@@ -39,6 +39,8 @@ interface StreamOutput {
   assistantContent: string;
   pendingToolUses: PendingToolUse[];
   streamError: string | null;
+  /** 原始错误消息（用于分类判断，如认证错误） */
+  rawError: string | null;
 }
 
 /**
@@ -64,6 +66,7 @@ export class Harness {
   private renderer: Renderer;
   private chatId: string;
   private abortController: AbortController;
+  private onAuthError?: () => Promise<void>;
 
   constructor(params: {
     session: Session;
@@ -73,6 +76,8 @@ export class Harness {
     renderer: Renderer;
     chatId: string;
     options?: HarnessOptions;
+    /** API 认证失败时触发，可用于让用户重新输入 Key */
+    onAuthError?: () => Promise<void>;
   }) {
     this.session = params.session;
     this.provider = params.provider;
@@ -81,6 +86,7 @@ export class Harness {
     this.renderer = params.renderer;
     this.chatId = params.chatId;
     this.abortController = new AbortController();
+    this.onAuthError = params.onAuthError;
     this.options = {
       systemPrompt: params.options?.systemPrompt ?? '你是一个智能助手，请用中文回答用户的问题。',
       maxToolRoundtrips: params.options?.maxToolRoundtrips ?? 10,
@@ -155,11 +161,15 @@ export class Harness {
       const toolDescriptors = this.getToolDescriptors();
 
       // Step 1: 从 AI Provider 流式获取响应（含自动重试）
-      const { assistantContent, pendingToolUses, streamError } =
+      const { assistantContent, pendingToolUses, streamError, rawError } =
         await this.streamWithRetry(contextMessages, toolDescriptors);
 
       if (streamError) {
         await this.renderer.error(streamError);
+        // 认证错误：触发重新配置流程（用原始错误判断，非清洗后的）
+        if (this.onAuthError && rawError && isAuthError(rawError)) {
+          await this.onAuthError();
+        }
         return;
       }
 
@@ -241,20 +251,23 @@ export class Harness {
         }
 
         const msg = err instanceof Error ? err.message : String(err);
-        logger.error({ err }, 'Provider 流致命错误');
+        logger.error(msg);
         return {
           assistantContent: '',
           pendingToolUses: [],
           streamError: sanitizeErrorMessage(msg),
+          rawError: msg,
         };
       }
     }
 
     // 不会执行到这里
+    const lastMsg = lastError instanceof Error ? lastError.message : String(lastError);
     return {
       assistantContent: '',
       pendingToolUses: [],
-      streamError: sanitizeErrorMessage(String(lastError)),
+      streamError: sanitizeErrorMessage(lastMsg),
+      rawError: lastMsg,
     };
   }
 
@@ -290,7 +303,7 @@ export class Harness {
         case 'error': {
           // 关闭流并抛出错误，由 streamWithRetry 决定是否重试
           await this.renderer.streamText('', true);
-          logger.error({ error: event.message }, 'AI Provider 流错误事件');
+          logger.error(event.message);
           throw new Error(event.message);
         }
         case 'done': {
@@ -303,7 +316,7 @@ export class Harness {
     // 通知渲染器流结束
     await this.renderer.streamText('', true);
 
-    return { assistantContent, pendingToolUses, streamError: null };
+    return { assistantContent, pendingToolUses, streamError: null, rawError: null };
   }
 
   /** 判断错误是否可重试 */
@@ -557,7 +570,7 @@ export class Harness {
       };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      logger.error({ err, tool: toolUse.name }, 'Tool 执行异常');
+      logger.error(`Tool ${toolUse.name}: ${msg}`);
       await this.renderer.error(`工具 "${toolUse.name}" 执行异常: ${msg}`);
       return {
         name: toolUse.name,
@@ -665,4 +678,10 @@ function sanitizeErrorMessage(msg: string): string {
 
   // 截断原始错误到合理长度
   return `AI 响应出错: ${msg.slice(0, 200)}`;
+}
+
+/** 判断错误是否为 API 认证错误 */
+function isAuthError(msg: string): boolean {
+  const lower = msg.toLowerCase();
+  return lower.includes('401') || lower.includes('authentication_error') || lower.includes('invalid x-api-key') || lower.includes('unauthorized') || lower.includes('missing credentials');
 }

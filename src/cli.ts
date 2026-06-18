@@ -190,15 +190,17 @@ const PROVIDERS: ProviderOption[] = [
  * 交互式 API 提供商和 Key 设置流程
  * 首次运行或无有效 Key 时，让用户选择大模型提供商并输入 API Key
  */
-async function ensureApiKey(): Promise<void> {
+async function ensureApiKey(force = false): Promise<void> {
   const envPath = path.resolve(process.cwd(), '.env');
 
-  // 先检查是否有任一提供商的 key 已配置
-  const hasAnyKey = PROVIDERS.some(p => {
-    const val = process.env[p.keyEnvVar];
-    return val && val.length > 8 && !val.includes('sk-test-fake');
-  });
-  if (hasAnyKey) return;
+  // 非强制模式下：有 key 就跳过
+  if (!force) {
+    const hasAnyKey = PROVIDERS.some(p => {
+      const val = process.env[p.keyEnvVar];
+      return val && val.length > 8 && !val.includes('sk-test-fake');
+    });
+    if (hasAnyKey) return;
+  }
 
   console.log('\n  ┌─────────────────────────────────────────────┐');
   console.log('  │  🤖  首次使用 — 请选择 AI 模型提供商       │');
@@ -510,6 +512,9 @@ async function terminalMode(): Promise<void> {
 
   let lastHarness: Harness | null = null;
 
+  // readline 控制器：让 onAuthError 能暂停/恢复 CLI 输入
+  let cliRl: readline.Interface | null = null;
+
   const harness = new Harness({
     session,
     provider,
@@ -522,6 +527,19 @@ async function terminalMode(): Promise<void> {
       maxToolRoundtrips: 10,
       maxContextTokens: config.maxContextTokens,
     },
+    onAuthError: async () => {
+      // 暂停 CLI 输入，防止与配置界面的 readline 冲突
+      if (cliRl) cliRl.close();
+      await ensureApiKey(true);
+      await renderer.text('✅ API Key 已更新，请重新发送消息。');
+      // 重新创建 CLI readline
+      cliRl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+        prompt: '\x1b[36m⎜ \x1b[0m',
+      });
+      setupReadline(cliRl);
+    },
   });
   lastHarness = harness;
 
@@ -531,44 +549,41 @@ async function terminalMode(): Promise<void> {
     session.systemPrompt += '\n\n' + (enriched[0].content as string);
   }
 
-  // 简短欢迎（类似 claude 命令的启动体验）
+  // 简短欢迎
   await renderer.text('');
   await renderer.text('欢迎使用 Fricless。输入 /help 查看可用命令，/quit 退出。');
   await renderer.text('');
 
-  const rl = readline.createInterface({
+  function setupReadline(rl: readline.Interface) {
+    rl.on('line', async (line: string) => {
+      const text = line.trim();
+      if (!text) { rl.prompt(); return; }
+      if (['/quit', '/exit', '/q'].includes(text)) {
+        await renderer.text('再见！');
+        rl.close();
+        process.exit(0);
+      }
+      try {
+        lastUserMessage = text;
+        await harness.handleUserMessage(text);
+        metrics.recordMessage('terminal', 0);
+        memoryExtractor.extractFromMessages(session.messages, session.id, session.userId).catch(() => {});
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        await renderer.error(`处理消息时出错: ${msg}`);
+      }
+      rl.prompt();
+    });
+    rl.on('close', () => process.exit(0));
+  }
+
+  cliRl = readline.createInterface({
     input: process.stdin,
     output: process.stdout,
     prompt: '\x1b[36m⎜ \x1b[0m',
   });
-
-  rl.prompt();
-
-  rl.on('line', async (line: string) => {
-    const text = line.trim();
-    if (!text) { rl.prompt(); return; }
-
-    if (['/quit', '/exit', '/q'].includes(text)) {
-      await renderer.text('再见！');
-      rl.close();
-      process.exit(0);
-    }
-
-    try {
-      lastUserMessage = text;
-      await harness.handleUserMessage(text);
-      metrics.recordMessage('terminal', 0);
-      // 提取记忆
-      memoryExtractor.extractFromMessages(session.messages, session.id, session.userId).catch(() => {});
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      await renderer.error(`处理消息时出错: ${msg}`);
-    }
-
-    rl.prompt();
-  });
-
-  rl.on('close', () => process.exit(0));
+  setupReadline(cliRl);
+  cliRl.prompt();
 }
 
 // ── 飞书网关模式 ─────────────────────────────────────────
