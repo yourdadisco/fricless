@@ -395,8 +395,22 @@ async function terminalMode(): Promise<void> {
   const metrics = new MetricsCollector();
   const memoryStore = new MemoryStore();
   const obsidianBridge = new ObsidianBridge(memoryStore, { outputDir: './fricless-memory', gitHistory: false });
-  obsidianBridge.syncAllToFiles().catch(() => {});  // 初始全量同步
-  obsidianBridge.startWatching();                   // 实时文件监听
+  obsidianBridge.syncAllToFiles().catch(() => {});
+  obsidianBridge.startWatching();
+
+  // 触发器1: 对话停顿 30 秒后自动刷写记忆到 .md 文件
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  let userMessageCount = 0;
+  const IDLE_FLUSH_DELAY = 30000;
+  function resetIdleTimer() {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(async () => {
+      if (userMessageCount > 0) {
+        await memoryExtractor.extractFromMessages(session.messages, session.id, session.userId);
+        await obsidianBridge.syncAllToFiles();
+      }
+    }, IDLE_FLUSH_DELAY);
+  }
 
   let permissionMode = 'auto';
   let debugModeEnabled = false;
@@ -606,10 +620,13 @@ async function terminalMode(): Promise<void> {
       if (['/quit', '/exit', '/q'].includes(text)) {
         await renderer.text('再见！');
         rl.close();
+        await obsidianBridge.syncAllToFiles();
         process.exit(0);
       }
       try {
         lastUserMessage = text;
+        userMessageCount++;
+        resetIdleTimer();
         await harness.handleUserMessage(text);
         metrics.recordMessage('terminal', 0);
         memoryExtractor.extractFromMessages(session.messages, session.id, session.userId).catch(() => {});
