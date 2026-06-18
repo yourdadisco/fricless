@@ -9,7 +9,7 @@ interface SearchResult {
 
 /**
  * 互联网搜索工具
- * 基于 Bing HTML 搜索 + DuckDuckGo 备用，免费稳定，无需 API Key。
+ * DuckDuckGo 主搜(中文结果好) + Bing 备用，免费稳定，无需 API Key。
  */
 export const webSearchTool = defineTool({
   name: 'web_search',
@@ -30,23 +30,13 @@ export const webSearchTool = defineTool({
   async call(input) {
     const { query, count = 5 } = input as { query: string; count?: number };
 
-    // 尝试用 Bing 搜索
-    const bingResult = await trySearch(searchWithBing, query, count);
-    if (bingResult !== null) return bingResult;
-
-    // Bing 无结果，尝试 DuckDuckGo
+    // DuckDuckGo 主搜（中文结果好）
     const ddgResult = await trySearch(searchWithDuckDuckGo, query, count);
     if (ddgResult !== null) return ddgResult;
 
-    // 两个引擎都失败，尝试简化查询再试一次
-    const simplified = simplifyQuery(query);
-    if (simplified !== query) {
-      const retryBing = await trySearch(searchWithBing, simplified, count);
-      if (retryBing !== null) return retryBing;
-
-      const retryDdg = await trySearch(searchWithDuckDuckGo, simplified, count);
-      if (retryDdg !== null) return retryDdg;
-    }
+    // DuckDuckGo 无结果，尝试 Bing
+    const bingResult = await trySearch(searchWithBing, query, count);
+    if (bingResult !== null) return bingResult;
 
     return { data: `搜索失败：所有搜索引擎均未返回结果。请尝试更改关键词。`, isError: true };
   },
