@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 import path from 'node:path';
+import os from 'node:os';
 
 dotenv.config();
 
@@ -83,7 +84,7 @@ export function loadConfig(): AppConfig {
 
     // Phase 3: Persistence
     sessionStore: (process.env.SESSION_STORE === 'sqlite' ? 'sqlite' : 'memory') as 'memory' | 'sqlite',
-    sqlitePath: optional('SQLITE_PATH', path.resolve(process.cwd(), 'data', 'sessions.db')),
+    sqlitePath: optional('SQLITE_PATH', path.resolve(os.homedir(), '.fricless', 'memory.db')),
 
     // Phase 3: Rate limiting
     rateLimitRpm: Number(optional('RATE_LIMIT_RPM', '30')),
