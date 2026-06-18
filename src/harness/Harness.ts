@@ -10,6 +10,7 @@ import { Session } from '../session/Session.js';
 import { TokenCounter } from './TokenCounter.js';
 import { StreamingToolExecutor } from './StreamingToolExecutor.js';
 import { shouldAutoCompact, compactConversation } from './compact/index.js';
+import { getContextWindowForModel, getModelMaxOutputTokens } from './ContextWindow.js';
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info', name: 'harness' });
 
@@ -124,10 +125,11 @@ export class Harness {
     this.chatId = params.chatId;
     this.abortController = new AbortController();
     this.onAuthError = params.onAuthError;
+    const modelName = params.provider.getModelInfo().name;
     this.options = {
       systemPrompt: params.options?.systemPrompt ?? '你是一个智能助手，请用中文回答用户的问题。',
       maxToolRoundtrips: params.options?.maxToolRoundtrips ?? 10,
-      maxContextTokens: params.options?.maxContextTokens ?? 32000,
+      maxContextTokens: params.options?.maxContextTokens ?? getContextWindowForModel(modelName),
     };
   }
 
