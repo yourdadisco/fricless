@@ -10,6 +10,11 @@ import { TokenCounter } from './TokenCounter.js';
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info', name: 'harness' });
 
+// Claude Code pattern: recovery attempt limit
+const MAX_RECOVERY_ATTEMPTS = 3;
+// Claude Code pattern: max consecutive search tools before forcing answer
+const MAX_CONSECUTIVE_SEARCHES = 3;
+
 export interface HarnessOptions {
   /** 系统提示词 */
   systemPrompt?: string;
@@ -18,6 +23,15 @@ export interface HarnessOptions {
   /** 最大上下文 Token 数 */
   maxContextTokens?: number;
 }
+
+// Claude Code pattern: explicit transition reasons for state machine
+type TransitionReason =
+  | 'next_turn'      // 正常继续
+  | 'completed'      // 对话结束，无更多工具调用
+  | 'max_turns'      // 超过最大轮次
+  | 'blocking_limit' // 预算耗尽
+  | 'model_error'    // AI 模型错误
+  | 'search_loop';   // 搜索循环打断
 
 // ── 内部辅助类型 ───────────────────────────────────────────
 
