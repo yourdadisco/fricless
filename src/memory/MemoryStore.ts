@@ -330,6 +330,14 @@ export class MemoryStore {
     return this._count;
   }
 
+  /** 获取所有记忆条目 */
+  async getAllEntries(): Promise<MemoryEntry[]> {
+    if (this.db) {
+      return (this.db.prepare('SELECT * FROM memories ORDER BY created_at DESC').all() as SqliteRow[]).map(r => this.rowToEntry(r));
+    }
+    return this.fallback?.getAll() ?? [];
+  }
+
   // ---------------------------------------------------------------------------
   // FTS sync helpers
   // ---------------------------------------------------------------------------
