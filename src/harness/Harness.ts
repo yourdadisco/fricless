@@ -263,15 +263,21 @@ export class Harness {
         return { reason: 'completed', turnCount: state.turnCount };
       }
 
-      // ── 8a. 连续搜索限制（DeepSeek 兼容） ────────────────
-      // DeepSeek 不擅长判断何时停止搜索。连续 6 次以上网络工具 → 强制回答
+      // ── 8a. 网络工具连续调用限制 ────────────────────────
       const networkTools = ['web_search', 'web_browser', 'web_fetch'];
+      // 统计本轮及之前连续的网络工具调用（遇到非网络工具调用才停止）
       let searchCount = 0;
       for (let i = this.session.messages.length - 1; i >= 0; i--) {
-        const m = this.session.messages[i];
-        if (m.role === 'tool' && m.toolName && networkTools.includes(m.toolName)) searchCount++;
-        else if (m.role === 'assistant' && m.content && m.content.length > 10) break;
+        const role = this.session.messages[i].role;
+        if (role === 'tool') {
+          const tn = this.session.messages[i].toolName;
+          if (tn && networkTools.includes(tn)) { searchCount++; continue; }
+          break; // 遇到非网络工具调用停止
+        }
+        if (role === 'assistant') break; // 遇到助手消息停止
       }
+      // 加上本轮的结果
+      searchCount += allToolResults.filter(tr => networkTools.includes(tr.name)).length;
       if (searchCount >= 6) {
         await this.renderer.text('我已有足够信息，现在为你整理回答。');
         const finalStream = this.provider.stream(
