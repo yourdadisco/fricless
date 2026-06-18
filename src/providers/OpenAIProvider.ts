@@ -27,21 +27,48 @@ export class OpenAIProvider implements AIProvider {
   }
 
   async *stream(messages: Message[], tools: ToolDescriptor[]): StreamResult {
-    const openaiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = messages
-      .filter(m => m.role !== 'system')
-      .map(m => {
-        if (m.role === 'tool') {
-          return {
-            role: 'tool',
-            tool_call_id: m.toolCallId ?? '',
-            content: typeof m.content === 'string' ? m.content : this.contentBlocksToText(m.content),
-          } as OpenAI.Chat.Completions.ChatCompletionMessageParam;
-        }
-        return {
-          role: m.role as 'user' | 'assistant',
+    // 将内部消息格式转为 OpenAI API 格式
+    // 关键处理: tool 消息前必须有包含 tool_calls 的 assistant 消息
+    const openaiMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
+    const nonSystem = messages.filter(m => m.role !== 'system');
+
+    for (let i = 0; i < nonSystem.length; i++) {
+      const m = nonSystem[i];
+
+      if (m.role === 'tool') {
+        openaiMessages.push({
+          role: 'tool',
+          tool_call_id: m.toolCallId ?? '',
+          content: typeof m.content === 'string' ? m.content : this.contentBlocksToText(m.content),
+        } as OpenAI.Chat.Completions.ChatCompletionMessageParam);
+        continue;
+      }
+
+      // 检查后面是否跟着 tool 消息 → 需要添加 tool_calls 到 assistant 消息
+      const nextMsg = nonSystem[i + 1];
+      const hasFollowingTool = nextMsg?.role === 'tool' && nextMsg.toolCallId;
+
+      if (m.role === 'assistant' && hasFollowingTool) {
+        openaiMessages.push({
+          role: 'assistant',
           content: this.messageContentToOpenAI(m),
-        } as OpenAI.Chat.Completions.ChatCompletionMessageParam;
-      });
+          tool_calls: [{
+            id: nextMsg.toolCallId!,
+            type: 'function',
+            function: {
+              name: nextMsg.toolName || '',
+              arguments: '{}',
+            },
+          }],
+        } as OpenAI.Chat.Completions.ChatCompletionMessageParam);
+        continue;
+      }
+
+      openaiMessages.push({
+        role: m.role as 'user' | 'assistant',
+        content: this.messageContentToOpenAI(m),
+      } as OpenAI.Chat.Completions.ChatCompletionMessageParam);
+    }
 
     const systemMsg = messages.find(m => m.role === 'system');
 
