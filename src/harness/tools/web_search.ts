@@ -13,9 +13,9 @@ interface SearchResult {
  */
 export const webSearchTool = defineTool({
   name: 'web_search',
-  description: '搜索互联网获取最新信息。用于了解当前事件、人物、技术、新闻等内容。',
+  description: '搜索互联网获取最新信息。重要：先用datetime获取当前日期，然后在query中包含年月以获取时效性结果。例如搜"2026年6月智能眼镜"。',
   inputSchema: z.object({
-    query: z.string().min(2).describe('搜索关键词，要求具体精确'),
+    query: z.string().min(2).describe('搜索关键词。重要：必须包含当前年份月份以确保时效性，如"2026年6月 智能眼镜 市场"'),
     count: z.number().min(1).max(20).optional().describe('返回结果数量（默认5）'),
   }),
   validateInput(input: unknown) {
