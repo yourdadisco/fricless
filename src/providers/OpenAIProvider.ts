@@ -3,6 +3,82 @@ import type { StreamResult, Message, ContentBlock } from '../types/index.js';
 import type { AIProvider, ModelInfo, ProviderConfig, ToolDescriptor } from './types.js';
 
 /**
+ * 对 DeepSeek 使用原生 fetch 发送请求（绕过 OpenAI SDK），
+ * 确保 enable_web_search: true 被正确发送到 API 顶层。
+ */
+async function* deepseekStream(config: ProviderConfig, body: Record<string, unknown>): StreamResult {
+  try {
+    const res = await fetch(`${(config.baseUrl || 'https://api.deepseek.com/v1').replace(/\/+$/, '')}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify({
+        ...body,
+        enable_web_search: true,
+        stream: true,
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => 'no body');
+      throw new Error(`${res.status} ${errText.slice(0, 200)}`);
+    }
+
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error('No response body');
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let accumulated = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed === 'data: [DONE]') continue;
+        if (!trimmed.startsWith('data: ')) continue;
+
+        try {
+          const json = JSON.parse(trimmed.slice(6));
+          const delta = json.choices?.[0]?.delta;
+          const finish = json.choices?.[0]?.finish_reason;
+
+          if (delta?.content) {
+            accumulated += delta.content;
+            yield { type: 'text' as const, delta: delta.content };
+          }
+
+          if (delta?.tool_calls) {
+            for (const tc of delta.tool_calls) {
+              yield {
+                type: 'tool_use' as const,
+                name: tc.function?.name || '',
+                input: (() => { try { return JSON.parse(tc.function?.arguments || '{}'); } catch { return { raw: tc.function?.arguments }; } })(),
+                id: tc.id || `call_${tc.index}`,
+              };
+            }
+          }
+
+          if (finish === 'stop') {
+            yield { type: 'done' as const, content: accumulated };
+          }
+        } catch { /* skip malformed lines */ }
+      }
+    }
+  } catch (err: any) {
+    yield { type: 'error' as const, message: err.message || String(err) };
+  }
+}
+
+/**
  * OpenAIProvider — 兼容 OpenAI API 格式的所有提供商
  *
  * 支持: OpenAI / DeepSeek / Qwen / Kimi / MiniMax / OpenRouter / 等
@@ -106,6 +182,21 @@ export class OpenAIProvider implements AIProvider {
     }));
 
     try {
+      if (this.vendor === 'deepseek') {
+        // DeepSeek：使用原生 fetch 确保 enable_web_search 正确传递
+        // DeepSeek 原生联网搜索，不需要传 tools
+        const body: Record<string, unknown> = {
+          model: this.config.model,
+          max_tokens: this.config.maxTokens,
+          messages: [
+            ...(systemMsg ? [{ role: 'system', content: this.messageContentToText(systemMsg.content) }] : []),
+            ...openaiMessages,
+          ],
+        };
+        yield* deepseekStream(this.config, body);
+        return;
+      }
+
       const streamParams: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming = {
         model: this.config.model,
         max_tokens: this.config.maxTokens,
@@ -116,10 +207,6 @@ export class OpenAIProvider implements AIProvider {
         tools: apiTools.length > 0 ? apiTools : undefined,
         stream: true,
       };
-      // DeepSeek 原生联网搜索：通过 extra_body 传递 enable_web_search 参数
-      if (this.vendor === 'deepseek') {
-        (streamParams as unknown as Record<string, unknown>).extra_body = { enable_web_search: true };
-      }
       const stream = await this.client.chat.completions.create(streamParams);
 
       let accumulatedContent = '';
