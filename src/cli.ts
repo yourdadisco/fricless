@@ -584,26 +584,33 @@ async function terminalMode(): Promise<void> {
     session.systemPrompt += '\n\n' + (enriched[0].content as string);
   }
 
-  // 启动画面（类似 Claude Code）
+  // 启动画面（Claude Code 风格）
   const providerInfo = provider?.getModelInfo?.();
   const modelName = providerInfo?.name || 'unknown';
   const toolCount = tools.length;
-  console.log(`${''}
-  ╭──────────────────────────────────────╮
-  │                                      │
-  │   ░▒▓▒░░▒▓█▓▒░░▒▓██████▓▒░           │
-  │   ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░       │
-  │   ░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░              │
-  │   ░▒▓█▓▒░░▒▓█▓▒░▒▓████▓▒░           │
-  │   ░▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░             │
-  │   ░▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░             │
-  │   ░▒▓██████▓▒░░ ░▒▓█▓▒░              │
-  │                                      │
-  │   Fricless v${VERSION.padEnd(8)}              │
-  │   ${modelName.padEnd(35)}│
-  │   ${String(toolCount).padStart(2)} tools · \`/help\` for commands     │
-  │                                      │
-  ╰──────────────────────────────────────╯`);
+  const cwd = process.cwd();
+  const W = 78;
+  const sep = '─'.repeat(W - 4);
+  const empty = `│${' '.repeat(W - 2)}│`;
+  const logo = [
+    `╭${sep}╮`,
+    empty,
+    `│${' '.repeat(28)}Welcome back!${' '.repeat(35)}│`,
+    empty,
+    `│${' '.repeat(24)}${' '.repeat(10)}${' '.repeat(34)}│`,
+    `│${' '.repeat(24)}  ▟██▙  ${' '.repeat(34)}│`,
+    `│${' '.repeat(24)} ▜████▛ ${' '.repeat(34)}│`,
+    `│${' '.repeat(24)}  ▝▀▀▘  ${' '.repeat(34)}│`,
+    `│${' '.repeat(24)}${' '.repeat(10)}${' '.repeat(34)}│`,
+    empty,
+    `│${' '.repeat(4)}Fricless v${VERSION}${' '.repeat(Math.max(1, 20 - VERSION.length))}${' '.repeat(46)}│`,
+    `│${' '.repeat(4)}${modelName}${' '.repeat(Math.max(1, 33 - modelName.length))}${' '.repeat(35)}│`,
+    `│${' '.repeat(4)}${toolCount} tools · /help for commands${' '.repeat(38)}│`,
+    `│${' '.repeat(4)}${cwd}${' '.repeat(Math.max(1, W - 8 - cwd.length))}│`,
+    empty,
+    `╰${sep}╯`,
+  ];
+  console.log(logo.join('\n'));
   console.log('');
 
   function setupReadline(rl: readline.Interface) {
