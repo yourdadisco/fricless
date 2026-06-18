@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { defineTool, defineToolWithSchema } from '../Tool.js';
 
 describe('defineTool', () => {
-  it('creates a BuiltTool with correct defaults (isReadOnly=true, isEnabled=()=>true, permissionLevel=auto)', () => {
+  it('creates a BuiltTool with correct defaults (isReadOnly=false, isEnabled=()=>true, permissionLevel=auto)', () => {
     const tool = defineTool({
       name: 'test_tool',
       description: 'A test tool',
@@ -15,7 +15,7 @@ describe('defineTool', () => {
 
     expect(tool.name).toBe('test_tool');
     expect(tool.description).toBe('A test tool');
-    expect(tool.isReadOnly).toBe(true);
+    expect(tool.isReadOnly).toBe(false);
     expect(tool.isEnabled()).toBe(true);
     expect(tool.permissionLevel).toBe('auto');
   });
@@ -152,7 +152,7 @@ describe('defineToolWithSchema', () => {
       },
     });
 
-    expect(tool.isReadOnly).toBe(true);
+    expect(tool.isReadOnly).toBe(false);
     expect(tool.isEnabled()).toBe(true);
     expect(tool.permissionLevel).toBe('auto');
   });

@@ -102,7 +102,7 @@ const TOOL_DEFAULTS = {
 };
 
 /**
- * defineTool — 类比 Claude Code 的 buildTool。
+ * defineTool — 类比 Claude Code's buildTool pattern。
  * 传入 ToolDef，自动补充默认值并生成 JSON Schema。
  */
 export function defineTool<TInput = unknown, TOutput = string>(
@@ -113,7 +113,7 @@ export function defineTool<TInput = unknown, TOutput = string>(
     ...def,
     aliases: def.aliases ?? [],
     jsonSchema: serializeZodSchema(def.inputSchema, def.description),
-    isReadOnly: def.isReadOnly ?? true,
+    isReadOnly: def.isReadOnly ?? false,
     isEnabled: def.isEnabled ?? (() => true),
     permissionLevel: def.permissionLevel ?? 'auto',
     isConcurrencySafe: def.isConcurrencySafe ?? false,
@@ -157,7 +157,7 @@ export function defineToolWithSchema<TInput = unknown, TOutput = string>(
     ...def,
     aliases: def.aliases ?? [],
     jsonSchema: def.jsonSchema,
-    isReadOnly: def.isReadOnly ?? true,
+    isReadOnly: def.isReadOnly ?? false,
     isEnabled: def.isEnabled ?? (() => true),
     permissionLevel: def.permissionLevel ?? 'auto',
     isConcurrencySafe: def.isConcurrencySafe ?? false,

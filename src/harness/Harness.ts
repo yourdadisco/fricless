@@ -1,18 +1,50 @@
 import pino from 'pino';
 import type { Message } from '../types/index.js';
 import type { AIProvider, ToolDescriptor } from '../providers/types.js';
-import type { AnyTool, ToolContext, ToolResult } from './Tool.js';
+import type { AnyTool, ToolContext } from './Tool.js';
 import type { CommandDef } from './Command.js';
 import type { Renderer } from '../render/RenderLayer.js';
+import type { ToolExecutionEvent } from './StreamingToolExecutor.js';
 import { Command } from './Command.js';
 import { Session } from '../session/Session.js';
 import { TokenCounter } from './TokenCounter.js';
+import { StreamingToolExecutor } from './StreamingToolExecutor.js';
 
 const logger = pino({ level: process.env.LOG_LEVEL || 'info', name: 'harness' });
 
-// Claude Code pattern: recovery attempt limit
+// Claude Code constants (direct copy)
 const MAX_RECOVERY_ATTEMPTS = 3;
-// Claude Code 没有限制成功搜索次数，只限制错误恢复。
+const ESCALATED_MAX_TOKENS = 64000;
+const MAX_OUTPUT_TOKENS_DEFAULT = 32000;
+const CAPPED_DEFAULT_MAX_TOKENS = 8000;
+const MAX_CONSECUTIVE_COMPACT_FAILURES = 3;
+
+// ── State Machine Types (Claude Code-style) ───────────────
+
+/** 非终端状态转移原因 — 对话循环继续 */
+type ContinueReason = 'next_turn' | 'max_output_tokens_recovery';
+
+/** 终端状态转移原因 — 对话循环结束 */
+type TerminalReason = 'completed' | 'max_turns' | 'model_error' | 'blocking_limit';
+
+/** 对话循环状态 */
+interface ConversationState {
+  turnCount: number;
+  maxOutputTokensRecoveryCount: number;
+  hasAttemptedReactiveCompact: boolean;
+  transition?: { reason: ContinueReason } | { reason: TerminalReason };
+}
+
+/** 对话循环结果 */
+interface ConversationResult {
+  reason: TerminalReason;
+  turnCount: number;
+}
+
+/** Claude Code-style: 显式转移原因（内部使用） */
+type TransitionReason = ContinueReason | TerminalReason;
+
+// ── Harness 选项 ─────────────────────────────────────────
 
 export interface HarnessOptions {
   /** 系统提示词 */
@@ -23,35 +55,10 @@ export interface HarnessOptions {
   maxContextTokens?: number;
 }
 
-// Claude Code pattern: explicit transition reasons for state machine
-type TransitionReason =
-  | 'next_turn'      // 正常继续
-  | 'completed'      // 对话结束，无更多工具调用
-  | 'max_turns'      // 超过最大轮次
-  | 'blocking_limit' // 预算耗尽
-  | 'model_error'    // AI 模型错误
-  | 'search_loop';   // 搜索循环打断
-
-// ── 内部辅助类型 ───────────────────────────────────────────
-
-interface PendingToolUse {
-  name: string;
-  input: Record<string, unknown>;
-  id: string;
-}
-
-interface ToolExecutionResult {
-  name: string;
-  id: string;
-  result: string;
-  isError: boolean;
-  extraMessages?: Message[];
-  newMessages?: Message[];
-}
+// ── 内部辅助类型 ─────────────────────────────────────────
 
 interface StreamOutput {
   assistantContent: string;
-  pendingToolUses: PendingToolUse[];
   streamError: string | null;
   /** 原始错误消息（用于分类判断，如认证错误） */
   rawError: string | null;
@@ -64,7 +71,7 @@ interface StreamOutput {
  * 职责:
  * 1. 解析用户输入（检测是否为斜杠命令）
  * 2. 管理 AI Provider 的请求/响应流（含流式输出 + 自动重试）
- * 3. 执行 Tool Call 并返回结果给 AI（支持并行 Tool 执行）
+ * 3. 执行 Tool Call 并返回结果给 AI（通过 StreamingToolExecutor 支持并行）
  * 4. 管理对话上下文（Token 窗口修剪）
  * 5. 中断处理（AbortSignal）
  * 6. Tool 结果截断
@@ -130,8 +137,9 @@ export class Harness {
     // Step 2: 添加用户消息到上下文
     this.session.addMessage({ role: 'user', content: text });
 
-    // Step 3: 运行 AI 对话循环
-    await this.runConversationLoop();
+    // Step 3: 运行 AI 对话循环（State Machine 驱动）
+    const result = await this.runConversationLoop();
+    logger.debug({ result }, '对话循环结束');
   }
 
   // ── 命令处理 ─────────────────────────────────────────────
@@ -159,77 +167,148 @@ export class Harness {
     });
   }
 
-  // ── AI 对话主循环 ────────────────────────────────────────
+  // ── AI 对话主循环（State Machine 模式） ─────────────────
 
-  /** AI 对话主循环（支持流式输出 + Tool Use 多轮往返 + 并行 Tool 执行） */
-  private async runConversationLoop(): Promise<void> {
-    let roundtrips = 0;
-    let consecutiveEmptyTools = 0;
+  /**
+   * AI 对话主循环 — 基于 Claude Code 风格的状态机。
+   *
+   * 状态流转:
+   * ┌──────────┐
+   * │  next    │ ← 每轮开始，turnCount++
+   * └────┬─────┘
+   *      ▼
+   * ┌──────────┐      ┌──────────────┐
+   * │ stream() │ ──→  │ model_error  │ (Terminal)
+   * └────┬─────┘      └──────────────┘
+   *      ▼
+   * ┌──────────┐      ┌──────────────┐
+   * │has tools?│ ──→  │ completed    │ (Terminal, 无 Tool)
+   * └────┬─────┘      └──────────────┘
+   *      ▼
+   * ┌──────────┐
+   * │ execute  │ ← 通过 StreamingToolExecutor 执行
+   * └────┬─────┘
+   *      ▼
+   * ┌──────────┐      ┌──────────────────┐
+   * │ recovery?│ ──→  │ max_output_      │ (空结果恢复)
+   * │  check   │      │ tokens_recovery  │
+   * └────┬─────┘      └──────────────────┘
+   *      ▼
+   * ┌──────────┐      ┌──────────────┐
+   * │max turns?│ ──→  │ max_turns    │ (Terminal)
+   * └────┬─────┘      └──────────────┘
+   *      ▼
+   * ┌──────────┐
+   * │  next    │ ← ContinueReason.next_turn
+   * └──────────┘
+   */
+  private async runConversationLoop(): Promise<ConversationResult> {
+    const state: ConversationState = {
+      turnCount: 0,
+      maxOutputTokensRecoveryCount: 0,
+      hasAttemptedReactiveCompact: false,
+    };
 
-    while (roundtrips < this.options.maxToolRoundtrips) {
-      roundtrips++;
+    while (state.turnCount < this.options.maxToolRoundtrips) {
+      state.turnCount++;
 
-      // 获取上下文消息（含 Token 窗口修剪）
+      // ── 1. 获取上下文消息（含 Token 窗口修剪） ──────────
       const contextMessages = this.getContextMessages();
 
-      // 收集可用的 Tool 描述
+      // ── 2. 获取可用的 Tool 描述 ──────────────────────────
       const toolDescriptors = this.getToolDescriptors();
 
-      // Step 1: 从 AI Provider 流式获取响应（含自动重试）
-      const { assistantContent, pendingToolUses, streamError, rawError } =
-        await this.streamWithRetry(contextMessages, toolDescriptors);
+      // ── 3. 创建 StreamingToolExecutor ────────────────────
+      const signal = this.abortController.signal;
+      const ctx: ToolContext = {
+        sessionId: this.session.id,
+        userId: this.session.userId,
+        chatId: this.chatId,
+        sendMessage: (content) => this.renderer.text(content),
+        signal,
+      };
 
+      const executor = new StreamingToolExecutor(this.tools, ctx, {
+        onToolResult: (event) => {
+          this.renderer.toolResult(event.name, event.result, event.isError).catch(() => {});
+        },
+      });
+
+      // ── 4. 从 AI Provider 流式获取响应（含自动重试） ────
+      const { assistantContent, streamError, rawError } =
+        await this.streamWithRetry(contextMessages, toolDescriptors, executor);
+
+      // ── 5. 检查流错误 → TerminalReason.model_error ──────
       if (streamError) {
         await this.renderer.error(streamError);
-        // 认证错误：触发重新配置流程（用原始错误判断，非清洗后的）
+        // 认证错误：触发重新配置流程
         if (this.onAuthError && rawError && isAuthError(rawError)) {
           await this.onAuthError();
         }
-        return;
+        state.transition = { reason: 'model_error' };
+        return { reason: 'model_error', turnCount: state.turnCount };
       }
 
-      // 如果没有 Tool Use，则本轮是最终响应
-      if (pendingToolUses.length === 0) {
+      // ── 6. 收集所有 Tool 执行结果 ────────────────────────
+      const allToolResults: ToolExecutionEvent[] = executor.toolCount > 0
+        ? await executor.getRemainingResults()
+        : [];
+
+      // ── 7. 无 Tool Use → TerminalReason.completed ───────
+      if (allToolResults.length === 0) {
         if (assistantContent) {
           this.session.addMessage({ role: 'assistant', content: assistantContent });
         }
-        return;
+        state.transition = { reason: 'completed' };
+        return { reason: 'completed', turnCount: state.turnCount };
       }
 
-      // Step 2: 分组并执行所有 Tool Call
-      const toolResults = await this.executeAllToolCalls(pendingToolUses);
+      // ── 8. 空/低质量结果恢复检测（Claude Code 模式） ────
+      // 连续两次所有 Tool 返回空或错误 → 进入恢复路径，强制最终回答
+      const isEmptyResult = (r: string) =>
+        !r || r.trim().length < 5 || r.includes('输入校验失败') || r.includes('搜索失败');
+      const allEmpty = allToolResults.every(tr => isEmptyResult(tr.result) || tr.isError);
 
-      // Claude Code pattern: 连续空结果/错误检测（不是限制搜索次数）
-      // 参考 Claude Code 的 MAX_OUTPUT_TOKENS_RECOVERY_LIMIT = 3
-      const isEmptyResult = (r: string) => !r || r.trim().length < 5 || r.includes('输入校验失败') || r.includes('搜索失败');
-      const allEmpty = toolResults.every(tr => isEmptyResult(tr.result) || tr.isError);
       if (allEmpty) {
-        consecutiveEmptyTools++;
-        if (consecutiveEmptyTools >= 2) {
+        state.maxOutputTokensRecoveryCount++;
+        if (state.maxOutputTokensRecoveryCount >= 2) {
+          state.hasAttemptedReactiveCompact = true;
           await this.renderer.text('我已有足够信息，现在为你整理回答。');
+          // 不带 Tool 重新请求，强制模型直接回答
           const finalStream = this.provider.stream(
-            this.getContextMessages().concat([{ role: 'user', content: '直接回答用户的问题，不要调用任何工具。' }]),
-            []
+            this.getContextMessages().concat([
+              { role: 'user', content: '直接回答用户的问题，不要调用任何工具。' },
+            ]),
+            [],
           );
           let finalContent = '';
           for await (const ev of finalStream) {
-            if (ev.type === 'text') { finalContent += ev.delta; await this.renderer.streamText(ev.delta, false); }
-            if (ev.type === 'done') { await this.renderer.streamText('', true); this.session.addMessage({ role: 'assistant', content: finalContent }); return; }
+            if (ev.type === 'text') {
+              finalContent += ev.delta;
+              await this.renderer.streamText(ev.delta, false);
+            }
+            if (ev.type === 'done') {
+              await this.renderer.streamText('', true);
+              this.session.addMessage({ role: 'assistant', content: finalContent });
+              state.transition = { reason: 'completed' };
+              return { reason: 'completed', turnCount: state.turnCount };
+            }
           }
-          return;
+          state.transition = { reason: 'completed' };
+          return { reason: 'completed', turnCount: state.turnCount };
         }
       } else {
-        consecutiveEmptyTools = 0;
+        state.maxOutputTokensRecoveryCount = 0;
       }
 
-      // Step 3: 记录本轮结果到会话上下文
-      const toolNames = toolResults.map(r => r.name).join(', ');
+      // ── 9. 记录本轮结果到会话上下文 ─────────────────────
+      const toolNames = allToolResults.map(r => r.name).join(', ');
       this.session.addMessage({
         role: 'assistant',
         content: assistantContent || `[调用工具: ${toolNames}]`,
       });
 
-      for (const tr of toolResults) {
+      for (const tr of allToolResults) {
         this.session.addMessage({
           role: 'tool',
           content: tr.result,
@@ -251,12 +330,22 @@ export class Harness {
           }
         }
       }
+
+      // ── 10. 检查是否达到最大轮次 → TerminalReason.max_turns ──
+      if (state.turnCount >= this.options.maxToolRoundtrips) {
+        await this.renderer.error(
+          '⚠️ 对话步骤过多，请简化你的问题或使用 /clear 重新开始。',
+        );
+        state.transition = { reason: 'max_turns' };
+        return { reason: 'max_turns', turnCount: state.turnCount };
+      }
+
+      // ── 11. 继续下一轮 → ContinueReason.next_turn ─────────
+      state.transition = { reason: 'next_turn' };
     }
 
-    // 超过最大轮次
-    await this.renderer.error(
-      '⚠️ 对话步骤过多，请简化你的问题或使用 /clear 重新开始。',
-    );
+    // 循环条件退出（防御性返回）
+    return { reason: 'max_turns', turnCount: state.turnCount };
   }
 
   // ── Provider 流式处理（含重试） ─────────────────────────
@@ -271,13 +360,14 @@ export class Harness {
   private async streamWithRetry(
     messages: Message[],
     tools: ToolDescriptor[],
+    executor: StreamingToolExecutor,
   ): Promise<StreamOutput> {
     const maxRetries = 2;
     let lastError: unknown;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
-        return await this.processStream(messages, tools);
+        return await this.processStream(messages, tools, executor);
       } catch (err) {
         lastError = err;
         const isNonFatal = this.isRetryableError(err);
@@ -292,7 +382,6 @@ export class Harness {
         logger.error(msg);
         return {
           assistantContent: '',
-          pendingToolUses: [],
           streamError: sanitizeErrorMessage(msg),
           rawError: msg,
         };
@@ -303,7 +392,6 @@ export class Harness {
     const lastMsg = lastError instanceof Error ? lastError.message : String(lastError);
     return {
       assistantContent: '',
-      pendingToolUses: [],
       streamError: sanitizeErrorMessage(lastMsg),
       rawError: lastMsg,
     };
@@ -313,10 +401,10 @@ export class Harness {
   private async processStream(
     messages: Message[],
     tools: ToolDescriptor[],
+    executor: StreamingToolExecutor,
   ): Promise<StreamOutput> {
     const stream = this.provider.stream(messages, tools);
     let assistantContent = '';
-    const pendingToolUses: PendingToolUse[] = [];
 
     for await (const event of stream) {
       switch (event.type) {
@@ -326,11 +414,8 @@ export class Harness {
           break;
         }
         case 'tool_use': {
-          pendingToolUses.push({
-            name: event.name,
-            input: event.input,
-            id: event.id,
-          });
+          // 将工具调用加入 StreamingToolExecutor（并发安全工具可立即开始执行）
+          executor.addTool(event.name, event.input, event.id);
           await this.renderer.toolUse(event.name, event.input);
           break;
         }
@@ -354,7 +439,7 @@ export class Harness {
     // 通知渲染器流结束
     await this.renderer.streamText('', true);
 
-    return { assistantContent, pendingToolUses, streamError: null, rawError: null };
+    return { assistantContent, streamError: null, rawError: null };
   }
 
   /** 判断错误是否可重试 */
@@ -374,250 +459,6 @@ export class Harness {
     }
     // 未知错误默认可重试
     return true;
-  }
-
-  // ── 并行 Tool 执行 ──────────────────────────────────────
-
-  /**
-   * 执行所有 Tool Call:
-   * 1. 按并发安全分组
-   * 2. 依次执行各组（每组内并行执行）
-   */
-  private async executeAllToolCalls(
-    toolUses: PendingToolUse[],
-  ): Promise<ToolExecutionResult[]> {
-    const groups = this.groupToolsByConcurrency(toolUses);
-    const allResults: ToolExecutionResult[] = [];
-
-    for (const group of groups) {
-      const results = await this.executeToolGroup(group);
-      allResults.push(...results);
-    }
-
-    return allResults;
-  }
-
-  /**
-   * 将 Tool Call 按并发安全性分组:
-   *   - 并发安全的 Tool 会尽量聚合在同一组中（并行执行）
-   *   - 非并发安全的 Tool 各自独占一组（串行执行）
-   * 组之间保持原始的 Tool Call 顺序。
-   *
-   * 示例:
-   *   [A(安全), B(安全), C(不安全), D(安全)] =>
-   *   [[A, B], [C], [D]]
-   */
-  private groupToolsByConcurrency(toolUses: PendingToolUse[]): PendingToolUse[][] {
-    const groups: PendingToolUse[][] = [];
-    let currentBatch: PendingToolUse[] = [];
-
-    for (const tu of toolUses) {
-      const tool = this.tools.find(t => t.name === tu.name);
-      const isSafe = tool?.isConcurrencySafe ?? false;
-
-      if (isSafe) {
-        // 累加到当前并发批
-        currentBatch.push(tu);
-      } else {
-        // 刷出当前并发批，然后该 Tool 独自一组
-        if (currentBatch.length > 0) {
-          groups.push(currentBatch);
-          currentBatch = [];
-        }
-        groups.push([tu]);
-      }
-    }
-
-    // 刷出最后一组
-    if (currentBatch.length > 0) {
-      groups.push(currentBatch);
-    }
-
-    return groups;
-  }
-
-  /**
-   * 执行一组 Tool Call。
-   * 组内所有 Tool 均为并发安全，使用 Promise.all 并行执行。
-   * 执行前检查中断信号。
-   */
-  private async executeToolGroup(
-    group: PendingToolUse[],
-  ): Promise<ToolExecutionResult[]> {
-    const signal = this.abortController.signal;
-
-    // 若已中断，跳过整组
-    if (signal.aborted) {
-      logger.warn('Tool 执行已被中断信号跳过');
-      return group.map(tu => ({
-        name: tu.name,
-        id: tu.id,
-        result: '执行已被中断',
-        isError: true,
-      }));
-    }
-
-    // 并行执行组内所有 Tool
-    const promises = group.map(tu => this.executeToolCall(tu, signal));
-    return Promise.all(promises);
-  }
-
-  // ── 单个 Tool 执行（含校验 + 权限 + 截断） ──────────────
-
-  /**
-   * 执行单个 Tool Call，依次进行:
-   * 1. 查找 Tool 定义
-   * 2. 启用检查
-   * 3. 中断检查
-   * 4. 输入校验
-   * 5. 权限检查
-   * 6. B2 确认流程（permissionLevel='confirm'）
-   * 7. 再次中断检查
-   * 8. 实际执行
-   * 9. 结果截断
-   * 10. 提取 extraMessages / newMessages
-   */
-  private async executeToolCall(
-    toolUse: PendingToolUse,
-    signal: AbortSignal,
-  ): Promise<ToolExecutionResult> {
-    const tool = this.tools.find(t => t.name === toolUse.name);
-
-    // 1. Tool 不存在
-    if (!tool) {
-      logger.warn({ toolName: toolUse.name }, 'Tool 不存在');
-      return {
-        name: toolUse.name,
-        id: toolUse.id,
-        result: `错误: 工具 "${toolUse.name}" 不存在。`,
-        isError: true,
-      };
-    }
-
-    // 2. Tool 未启用
-    if (!tool.isEnabled()) {
-      return {
-        name: toolUse.name,
-        id: toolUse.id,
-        result: `错误: 工具 "${toolUse.name}" 当前未启用。`,
-        isError: true,
-      };
-    }
-
-    logger.info({ tool: toolUse.name, input: toolUse.input }, '执行 Tool');
-
-    // 3. 执行前中断检查
-    if (signal.aborted) {
-      return {
-        name: toolUse.name,
-        id: toolUse.id,
-        result: '执行已被中断',
-        isError: true,
-      };
-    }
-
-    try {
-      // 4. 输入校验
-      if (tool.validateInput) {
-        const validation = tool.validateInput(toolUse.input);
-        if (!validation.valid) {
-          logger.warn(
-            { tool: toolUse.name, input: toolUse.input, error: validation.error },
-            'Tool 输入校验失败',
-          );
-          return {
-            name: toolUse.name,
-            id: toolUse.id,
-            result: `输入校验失败: ${validation.error}`,
-            isError: true,
-          };
-        }
-      }
-
-      // 构建 ToolContext（供权限检查 + 执行使用）
-      const ctx: ToolContext = {
-        sessionId: this.session.id,
-        userId: this.session.userId,
-        chatId: this.chatId,
-        sendMessage: (content) => this.renderer.text(content),
-        signal,
-      };
-
-      // 5. 权限检查
-      if (tool.checkPermissions) {
-        const perm = await tool.checkPermissions(toolUse.input as Parameters<typeof tool.call>[0], ctx);
-        if (!perm.allowed) {
-          return {
-            name: toolUse.name,
-            id: toolUse.id,
-            result: `权限不足: ${perm.reason || '无权访问'}`,
-            isError: true,
-          };
-        }
-      }
-
-      // 6. B2 确认流程
-      if (tool.permissionLevel === 'confirm') {
-        await this.renderer.divider();
-        await this.renderer.markdown(`**需要确认**: 工具 \`${toolUse.name}\` 需要你的授权才能执行。`);
-        await this.renderer.toolUse(toolUse.name, toolUse.input);
-
-        // TODO: 集成真实用户确认机制（如飞书消息回调或 Terminal 输入）
-        // 目前根据模式自动确认
-        if (this.renderer.mode === 'terminal') {
-          await this.renderer.text('(终端模式: 自动确认)');
-        } else if (this.renderer.mode === 'feishu') {
-          await this.renderer.text('(飞书模式: 自动确认)');
-        }
-
-        await this.renderer.text('✅ 已确认，继续执行。');
-        await this.renderer.divider();
-      }
-
-      // 7. 执行前再次中断检查
-      if (signal.aborted) {
-        return {
-          name: toolUse.name,
-          id: toolUse.id,
-          result: '执行已被中断',
-          isError: true,
-        };
-      }
-
-      // 8. 执行 Tool
-      const rawResult = await tool.call(toolUse.input as Parameters<typeof tool.call>[0], ctx);
-
-      // 9. 结果截断
-      let resultData = rawResult.data;
-      const maxChars = tool.maxResultSizeChars;
-      if (maxChars && typeof resultData === 'string' && resultData.length > maxChars) {
-        resultData = resultData.slice(0, maxChars) +
-          `\n\n[结果已截断: 原长度 ${resultData.length} 字符，保留前 ${maxChars} 字符]`;
-      }
-
-      // 渲染 Tool 结果到 UI
-      await this.renderer.toolResult(toolUse.name, resultData, !!rawResult.isError);
-
-      // 10. 返回结构化结果（含额外消息）
-      return {
-        name: toolUse.name,
-        id: toolUse.id,
-        result: rawResult.isError ? `执行出错: ${resultData}` : resultData,
-        isError: !!rawResult.isError,
-        extraMessages: rawResult.extraMessages,
-        newMessages: rawResult.newMessages,
-      };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      logger.error(`Tool ${toolUse.name}: ${msg}`);
-      await this.renderer.error(`工具 "${toolUse.name}" 执行异常: ${msg}`);
-      return {
-        name: toolUse.name,
-        id: toolUse.id,
-        result: `工具执行异常: ${msg}`,
-        isError: true,
-      };
-    }
   }
 
   // ── 上下文管理 ─────────────────────────────────────────
