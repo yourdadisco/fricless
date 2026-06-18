@@ -263,7 +263,31 @@ export class Harness {
         return { reason: 'completed', turnCount: state.turnCount };
       }
 
-      // ── 8. 空/低质量结果恢复检测（Claude Code 模式） ────
+      // ── 8a. 连续搜索限制（DeepSeek 兼容） ────────────────
+      // DeepSeek 不擅长判断何时停止搜索。连续 6 次以上网络工具 → 强制回答
+      const networkTools = ['web_search', 'web_browser', 'web_fetch'];
+      let searchCount = 0;
+      for (let i = this.session.messages.length - 1; i >= 0; i--) {
+        const m = this.session.messages[i];
+        if (m.role === 'tool' && m.toolName && networkTools.includes(m.toolName)) searchCount++;
+        else if (m.role === 'assistant' && m.content && m.content.length > 10) break;
+      }
+      if (searchCount >= 6) {
+        await this.renderer.text('我已有足够信息，现在为你整理回答。');
+        const finalStream = this.provider.stream(
+          this.getContextMessages().concat([{ role: 'user', content: '直接回答用户的问题，不要调用任何工具。请基于已有信息给出完整回答。' }]),
+          [],
+        );
+        let finalContent = '';
+        for await (const ev of finalStream) {
+          if (ev.type === 'text') { finalContent += ev.delta; await this.renderer.streamText(ev.delta, false); }
+          if (ev.type === 'done') { await this.renderer.streamText('', true); this.session.addMessage({ role: 'assistant', content: finalContent }); break; }
+        }
+        state.transition = { reason: 'completed' };
+        return { reason: 'completed', turnCount: state.turnCount };
+      }
+
+      // ── 8b. 空/低质量结果恢复检测（Claude Code 模式） ────
       // 连续两次所有 Tool 返回空或错误 → 进入恢复路径，强制最终回答
       const isEmptyResult = (r: string) =>
         !r || r.trim().length < 5 || r.includes('输入校验失败') || r.includes('搜索失败');
