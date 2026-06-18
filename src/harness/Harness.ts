@@ -50,7 +50,7 @@ interface ConversationState {
   maxOutputTokensRecoveryCount: number;
   hasAttemptedReactiveCompact: boolean;
   maxOutputTokensOverride?: number;
-  transition?: { reason: ContinueReason } | { reason: TerminalReason };
+  transition?: { reason: ContinueReason; attempt?: number } | { reason: TerminalReason };
 }
 
 /** 对话循环结果 */
@@ -261,13 +261,51 @@ export class Harness {
       const { assistantContent, streamError, rawError } =
         await this.streamWithRetry(contextMessages, toolDescriptors, executor);
 
-      // ── 5. 检查流错误 → TerminalReason.model_error ──────
+      // ── 5. 检查流错误 → 分类处理 ────────────────────────
       if (streamError) {
-        await this.renderer.error(streamError);
+        const errLower = (rawError || streamError).toLowerCase();
+
+        // Claude Code: prompt_too_long recovery with circuit breaker
+        if (errLower.includes('prompt_too_long') || errLower.includes('context_length') || errLower.includes('too large')) {
+          if (!state.hasAttemptedReactiveCompact) {
+            // 首次：标记并重试
+            state.hasAttemptedReactiveCompact = true;
+            await this.renderer.text('上下文过长，正在压缩...');
+            // 尝试清空一半的对话历史
+            const msgCount = this.session.messages.length;
+            if (msgCount > 10) {
+              this.session.messages = this.session.messages.slice(-Math.floor(msgCount / 2));
+            }
+            state.transition = { reason: 'reactive_compact_retry' };
+            continue; // 重试当前轮
+          }
+          // 已尝试过压缩但仍然失败 → prompt_too_long
+          state.transition = { reason: 'prompt_too_long' };
+          return { reason: 'prompt_too_long', turnCount: state.turnCount };
+        }
+
+        // Claude Code: max_output_tokens escalation chain
+        if (errLower.includes('max_tokens') || errLower.includes('maximum tokens')) {
+          if (!state.maxOutputTokensOverride) {
+            // 首次：从默认提升到 64k
+            state.maxOutputTokensOverride = ESCALATED_MAX_TOKENS;
+            state.transition = { reason: 'max_output_tokens_escalate' };
+            continue;
+          }
+          if (state.maxOutputTokensRecoveryCount < MAX_RECOVERY_ATTEMPTS) {
+            // 重试恢复（最多 3 次）
+            state.maxOutputTokensRecoveryCount++;
+            state.transition = { reason: 'max_output_tokens_recovery', attempt: state.maxOutputTokensRecoveryCount };
+            continue;
+          }
+        }
+
         // 认证错误：触发重新配置流程
         if (this.onAuthError && rawError && isAuthError(rawError)) {
           await this.onAuthError();
         }
+        // 其他错误 → model_error
+        await this.renderer.error(streamError);
         state.transition = { reason: 'model_error' };
         return { reason: 'model_error', turnCount: state.turnCount };
       }
