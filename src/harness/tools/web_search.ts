@@ -37,8 +37,14 @@ export const webSearchTool = defineTool({
   async call(input) {
     const { query, count = 5 } = input as { query: string; count?: number };
 
-    // 多后端依次尝试：SerpAPI → DuckDuckGo → Bing
+    // 多后端依次尝试：Brave → SerpAPI → DuckDuckGo → Bing
     const backends: Array<() => Promise<{ data: string }>> = [];
+
+    // Brave Search API: 每月2000次免费 (https://brave.com/search/api/)
+    const braveKey = process.env.BRAVE_API_KEY;
+    if (braveKey) {
+      backends.push(() => searchWithBrave(query, count, braveKey));
+    }
 
     const serpApiKey = process.env.SERPAPI_API_KEY;
     if (serpApiKey) {
@@ -63,11 +69,53 @@ export const webSearchTool = defineTool({
     }
 
     return {
-      data: '搜索失败。建议前往 https://serpapi.com 注册免费账号，将 SERPAPI_API_KEY 添加到 .env 文件以获得稳定搜索能力。',
+      data: '搜索失败。要获得稳定的搜索能力，在 .env 中添加任一 API Key:\n  BRAVE_API_KEY=你的key (推荐，每月2000次免费, https://brave.com/search/api/)\n  SERPAPI_API_KEY=你的key (每月100次免费, https://serpapi.com)',
       isError: true,
     };
   },
 });
+
+// ── Brave Search API ──────────────────────────────────
+// Free tier: 2,000 queries/month, no credit card needed
+// Sign up: https://brave.com/search/api/
+
+async function searchWithBrave(query: string, count: number, apiKey: string): Promise<{ data: string }> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
+
+  try {
+    const res = await fetch(
+      `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${Math.min(count, 10)}`,
+      {
+        signal: controller.signal,
+        headers: {
+          'Accept': 'application/json',
+          'Accept-Encoding': 'gzip',
+          'X-Subscription-Token': apiKey,
+        },
+      },
+    );
+
+    if (!res.ok) throw new Error(`Brave API HTTP ${res.status}`);
+    const body = await res.json();
+    const web = body?.web?.results ?? [];
+    if (web.length === 0) throw new Error('Brave 未返回结果');
+
+    const lines = ['--- Brave Search 结果 ---', ''];
+    web.slice(0, count).forEach((r: any, i: number) => {
+      lines.push(`${i + 1}. ${r.title || '(无标题)'}`);
+      if (r.description) lines.push(`   ${r.description}`);
+      if (r.url) lines.push(`   \`${r.url}\``);
+      lines.push('');
+    });
+    return { data: lines.join('\n').trim() };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Brave 搜索失败: ${msg}`);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 // ── SerpAPI ───────────────────────────────────────────
 
