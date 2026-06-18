@@ -221,6 +221,19 @@ src/
 ## TUI 调试承诺
 
 > 本项目的调试遵循"无限循环调试"原则：
+> 4. 不发明自己的 Harness 解决方案——Fricless 做不好的地方，直接到 Claude Code 源码借鉴/照抄
+
+## Harness 开发铁律
+
+> **绝不自己发明 Harness 架构解决方案。**
+>
+> Fricless 的 Harness 设计必须严格以 Claude Code 源码为蓝本：
+> 1. 遇到任何 Harness 层面的问题（对话循环、Tool 执行、错误恢复、上下文管理等），先查 Claude Code 源码怎么做的
+> 2. 直接复制 Claude Code 的模式、常量、算法，不做自己发明的"优化"
+> 3. 只有 Claude Code 源码中没有对应实现时，才自己设计，且需注明理由
+> 4. 参考源码地址: https://github.com/pengchengneo/Claude-Code
+
+> 本项目的调试遵循"无限循环调试"原则：
 > 1. 每个 Bug 必须通过 TUI 实测验证修复
 > 2. 修复后运行完整测试套件（`npm test`）
 > 3. 测试通过后推送到 GitHub
