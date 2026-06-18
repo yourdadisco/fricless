@@ -221,19 +221,29 @@ async function searchWithBing(query: string, count: number): Promise<{ data: str
     const html = await res.text();
     const results: SearchResult[] = [];
 
-    // Bing 搜索结果格式
+    // Bing 搜索结果格式：<li class="b_algo"><h2><a href="..." target="_blank">标题</a></h2><p>摘要</p></li>
     const itemRegex = /<li class="b_algo"[^>]*>([\s\S]*?)<\/li>/g;
     let itemMatch;
     while ((itemMatch = itemRegex.exec(html)) !== null && results.length < count) {
       const item = itemMatch[1];
-      const h = item.match(/<a[^>]+href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/i);
-      const p = item.match(/<p[^>]*>([\s\S]*?)<\/p>/i);
-      if (h) {
+      // 先找 <h2> 里的链接（这才是标题）
+      const h2a = item.match(/<h2[^>]*>[\s\S]*?<a[^>]+href="([^"]*)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<\/h2>/i);
+      if (h2a) {
         results.push({
-          title: h[2].replace(/<[^>]+>/g, '').trim(),
-          snippet: p ? p[1].replace(/<[^>]+>/g, '').trim() : '',
-          link: h[1],
+          title: h2a[2].replace(/<[^>]+>/g, '').trim(),
+          snippet: '',
+          link: h2a[1].startsWith('http') ? h2a[1] : 'https://www.bing.com' + h2a[1],
         });
+      } else {
+        // 回退：取第一个链接
+        const firstA = item.match(/<a[^>]+href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/i);
+        if (firstA) {
+          results.push({
+            title: firstA[2].replace(/<[^>]+>/g, '').trim(),
+            snippet: '',
+            link: firstA[1].startsWith('http') ? firstA[1] : 'https://www.bing.com' + firstA[1],
+          });
+        }
       }
     }
     if (results.length === 0) throw new Error('Bing 未返回可解析的结果');
