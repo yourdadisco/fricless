@@ -394,7 +394,7 @@ async function terminalMode(): Promise<void> {
   const renderer = new TerminalRenderer();
   const metrics = new MetricsCollector();
   const memoryStore = new MemoryStore();
-  const obsidianBridge = new ObsidianBridge(memoryStore, { outputDir: path.join(os.homedir(), 'fricless-memory'), autoSync: true });
+  const obsidianBridge = new ObsidianBridge(memoryStore, { outputDir: './fricless-memory', autoSync: true });
   // 首次启动时从 Obsidian 文件导入已有记忆
   obsidianBridge.importAllFromFiles().catch(() => {});
 
