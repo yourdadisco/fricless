@@ -106,7 +106,7 @@ export class OpenAIProvider implements AIProvider {
     }));
 
     try {
-      const stream = await this.client.chat.completions.create({
+      const streamParams: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming = {
         model: this.config.model,
         max_tokens: this.config.maxTokens,
         messages: [
@@ -115,7 +115,12 @@ export class OpenAIProvider implements AIProvider {
         ],
         tools: apiTools.length > 0 ? apiTools : undefined,
         stream: true,
-      });
+      };
+      // DeepSeek 原生联网搜索：通过 extra_body 传递 enable_web_search 参数
+      if (this.vendor === 'deepseek') {
+        (streamParams as unknown as Record<string, unknown>).extra_body = { enable_web_search: true };
+      }
+      const stream = await this.client.chat.completions.create(streamParams);
 
       let accumulatedContent = '';
       let pendingToolCalls: Map<number, { name: string; args: string; id: string }> = new Map();
