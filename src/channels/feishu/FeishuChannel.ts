@@ -2,7 +2,7 @@ import { createLarkChannel, LoggerLevel } from '@larksuiteoapi/node-sdk';
 import pino from 'pino';
 import type { Channel, InboundMessage, MessageHandler, ChannelStatus, ContentBlock } from '../types.js';
 
-const logger = pino({ name: 'feishu-channel' });
+const logger = pino({ level: process.env.LOG_LEVEL || 'info', name: 'feishu-channel' });
 
 /**
  * 飞书通道适配器

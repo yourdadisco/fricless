@@ -9,7 +9,7 @@ import type { ISessionStore } from '../session/ISessionStore.js';
 import { FeishuRenderer } from '../render/feishu/FeishuRenderer.js';
 import type { Renderer } from '../render/RenderLayer.js';
 
-const logger = pino({ name: 'gateway' });
+const logger = pino({ level: process.env.LOG_LEVEL || 'info', name: 'gateway' });
 
 export interface GatewayOptions {
   /** 系统提示词 */

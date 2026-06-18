@@ -15,7 +15,7 @@ import { Scheduler } from './Scheduler.js';
 import type { AIProvider } from '../providers/types.js';
 import type { Message } from '../types/index.js';
 
-const logger = pino({ name: 'proactive-engine' });
+const logger = pino({ level: process.env.LOG_LEVEL || 'info', name: 'proactive-engine' });
 
 export interface ProactiveEngineOptions {
   /** AI Provider 实例 */

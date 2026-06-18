@@ -19,7 +19,7 @@ import http from 'node:http';
 import pino from 'pino';
 import type { BridgeEvent, BridgeCommand, CommandResult } from './Protocol.js';
 
-const logger = pino({ name: 'bridge' });
+const logger = pino({ level: process.env.LOG_LEVEL || 'info', name: 'bridge' });
 
 export interface BridgeServerConfig {
   port: number;

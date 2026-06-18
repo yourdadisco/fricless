@@ -7,7 +7,7 @@
 
 import pino from 'pino';
 
-const logger = pino({ name: 'eventbus' });
+const logger = pino({ level: process.env.LOG_LEVEL || 'info', name: 'eventbus' });
 
 type Handler = (...args: unknown[]) => void | Promise<void>;
 

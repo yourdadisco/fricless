@@ -13,7 +13,7 @@ import type { AnyTool } from '../harness/Tool.js';
 import type { CommandDef } from '../harness/Command.js';
 import { EventBus } from './EventBus.js';
 
-const logger = pino({ name: 'plugin-manager' });
+const logger = pino({ level: process.env.LOG_LEVEL || 'info', name: 'plugin-manager' });
 
 export class PluginManager {
   private plugins = new Map<string, FriclessPlugin>();
@@ -63,7 +63,7 @@ export class PluginManager {
       }
 
       const pluginCtx: PluginContext = {
-        logger: pino({ name: `plugin:${plugin.meta.name}` }),
+        logger: pino({ level: process.env.LOG_LEVEL || 'info', name: `plugin:${plugin.meta.name}` }),
         config: {},
         eventBus: this.eventBus,
       };

@@ -8,7 +8,7 @@ import { Command } from './Command.js';
 import { Session } from '../session/Session.js';
 import { TokenCounter } from './TokenCounter.js';
 
-const logger = pino({ name: 'harness' });
+const logger = pino({ level: process.env.LOG_LEVEL || 'info', name: 'harness' });
 
 export interface HarnessOptions {
   /** 系统提示词 */

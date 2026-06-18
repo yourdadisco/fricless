@@ -9,7 +9,7 @@ import type { CommandDef } from '../harness/Command.js';
 import type { Renderer } from '../render/RenderLayer.js';
 import { Session } from '../session/Session.js';
 
-const logger = pino({ name: 'coordinator' });
+const logger = pino({ level: process.env.LOG_LEVEL || 'info', name: 'coordinator' });
 
 export interface AgentConfig {
   name: string;

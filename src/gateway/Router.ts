@@ -8,7 +8,7 @@ import type { AnyTool } from '../harness/Tool.js';
 import type { CommandDef } from '../harness/Command.js';
 import type { AIProvider } from '../providers/types.js';
 
-const logger = pino({ name: 'router' });
+const logger = pino({ level: process.env.LOG_LEVEL || 'info', name: 'router' });
 
 export interface RouterOptions {
   /** 默认系统提示词 */

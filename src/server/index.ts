@@ -14,7 +14,7 @@ import pino from 'pino';
 import type { ISessionStore } from '../session/ISessionStore.js';
 import { MetricsCollector } from './MetricsCollector.js';
 
-const logger = pino({ name: 'server' });
+const logger = pino({ level: process.env.LOG_LEVEL || 'info', name: 'server' });
 
 export interface ServerConfig {
   port: number;

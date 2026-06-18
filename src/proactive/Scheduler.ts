@@ -7,7 +7,7 @@
 import crypto from 'node:crypto';
 import pino from 'pino';
 
-const logger = pino({ name: 'scheduler' });
+const logger = pino({ level: process.env.LOG_LEVEL || 'info', name: 'scheduler' });
 
 /** 标准 5 字段 Cron 表达式：分 时 日 月 星期 */
 export type CronSchedule = string;

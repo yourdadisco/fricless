@@ -129,7 +129,7 @@ import type { CommandDef } from './harness/Command.js';
 import type { ISessionStore } from './session/ISessionStore.js';
 import type { ChannelStatus } from './channels/types.js';
 
-const logger = pino({ name: 'fricless' });
+const logger = pino({ level: process.env.LOG_LEVEL || 'info', name: 'fricless' });
 
 const VERSION = '0.2.0';
 
