@@ -19,19 +19,37 @@ const MAX_OUTPUT_TOKENS_DEFAULT = 32000;
 const CAPPED_DEFAULT_MAX_TOKENS = 8000;
 const MAX_CONSECUTIVE_COMPACT_FAILURES = 3;
 
-// ── State Machine Types (Claude Code-style) ───────────────
+// ── State Machine Types (Claude Code 完整移植) ───────────
 
-/** 非终端状态转移原因 — 对话循环继续 */
-type ContinueReason = 'next_turn' | 'max_output_tokens_recovery';
+/** Claude Code 全部 7 种 Continue 原因 */
+type ContinueReason =
+  | 'next_turn'                    // 正常工具调用后续
+  | 'max_output_tokens_recovery'   // 输出截断后恢复
+  | 'max_output_tokens_escalate'   // 输出 token 从 8k 提升到 64k
+  | 'collapse_drain_retry'         // 上下文坍塌后重试
+  | 'reactive_compact_retry'       // 响应式压缩后重试
+  | 'stop_hook_blocking'           // 钩子阻止，携带恢复消息
+  | 'token_budget_continuation';   // token 预算内继续
 
-/** 终端状态转移原因 — 对话循环结束 */
-type TerminalReason = 'completed' | 'max_turns' | 'model_error' | 'blocking_limit';
+/** Claude Code 全部 10 种 Terminal 原因 */
+type TerminalReason =
+  | 'completed'              // 正常结束
+  | 'max_turns'              // 超过最大轮次
+  | 'model_error'            // 模型错误
+  | 'blocking_limit'         // 预算耗尽
+  | 'prompt_too_long'        // 提示过长无法恢复
+  | 'image_error'            // 图片错误
+  | 'aborted_streaming'      // 用户中断流
+  | 'aborted_tools'          // 用户中断工具
+  | 'stop_hook_prevented'    // 钩子阻止继续
+  | 'hook_stopped';          // 工具结果阻止继续
 
-/** 对话循环状态 */
+/** 对话循环状态（Claude Code State 模式） */
 interface ConversationState {
   turnCount: number;
   maxOutputTokensRecoveryCount: number;
   hasAttemptedReactiveCompact: boolean;
+  maxOutputTokensOverride?: number;
   transition?: { reason: ContinueReason } | { reason: TerminalReason };
 }
 
@@ -40,9 +58,6 @@ interface ConversationResult {
   reason: TerminalReason;
   turnCount: number;
 }
-
-/** Claude Code-style: 显式转移原因（内部使用） */
-type TransitionReason = ContinueReason | TerminalReason;
 
 // ── Harness 选项 ─────────────────────────────────────────
 
@@ -234,7 +249,15 @@ export class Harness {
         },
       });
 
-      // ── 4. 从 AI Provider 流式获取响应（含自动重试） ────
+      // ── 4a. Token 预算预检查（Claude Code: blocking_limit） ──
+      const estimatedTokens = TokenCounter.countMessages(contextMessages);
+      if (estimatedTokens > this.options.maxContextTokens * 0.95) {
+        await this.renderer.text('上下文已满，请使用 /clear 清空后重试。');
+        state.transition = { reason: 'blocking_limit' };
+        return { reason: 'blocking_limit', turnCount: state.turnCount };
+      }
+
+      // ── 4b. 从 AI Provider 流式获取响应（含自动重试） ────
       const { assistantContent, streamError, rawError } =
         await this.streamWithRetry(contextMessages, toolDescriptors, executor);
 
