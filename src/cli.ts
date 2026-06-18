@@ -570,7 +570,7 @@ async function terminalMode(): Promise<void> {
     userId: 'cli-user',
     systemPrompt: '你是一个智能助手，请用中文回答用户的问题。你可以调用工具来帮助用户完成各种任务。'
       + (isDeepSeek ? '\n\n当用户询问需要最新信息的问题时使用 web_search 搜索。有专门工具的操作用专用工具：base64编解码用base64，哈希用hash，UUID用uuid_gen，JSON用json_tool，密码用password_gen，正则用regex_test，颜色用color_tool，单位转换用unit_convert，时间戳用timestamp，翻译用translate。不要用code_run或bash去做这些操作。' : '')
-      + `\n\n用户信息:\n- 用户名: ${os.userInfo().username}\n- 家目录: ${os.homedir()}\n- 桌面路径: ${path.join(os.homedir(), 'Desktop')}\n- 平台: ${process.platform}\n\n当用户提到"桌面"时,桌面路径是 ${path.join(os.homedir(), 'Desktop')}。使用 readFile/glob/等工具时用 ~/Desktop/file.txt 格式即可。`,
+      + `\n\n用户信息:\n- 用户名: ${os.userInfo().username}\n- 家目录: ${os.homedir()}\n- 桌面路径: ${path.join(os.homedir(), 'Desktop')}\n- 平台: ${process.platform}\n\n当用户提到"桌面"时,桌面路径是 ${path.join(os.homedir(), 'Desktop')}。当用户让你读文件时,直接使用 readFile("~/Desktop/文件名") 读取,不要先用 glob 或 grep 搜索。用 ~/Desktop/file.txt 格式。当用户说"桌面上有XX文件"时直接 readFile 就行,用户说的文件名通常是正确的。`,
   });
   sessionStore.getOrCreate({ id: session.id, userId: session.userId, systemPrompt: session.systemPrompt });
 
@@ -816,7 +816,7 @@ async function gatewayMode(): Promise<void> {
     options: {
       systemPrompt: '你是一个智能助手，请用中文回答用户的问题。你可以调用工具来帮助用户完成各种任务。'
         + (isDeepSeek ? '\n\n当用户询问需要最新信息的问题时使用 web_search 搜索。有专门工具的操作用专用工具：base64编解码用base64，哈希用hash，UUID用uuid_gen，JSON用json_tool，密码用password_gen，正则用regex_test，颜色用color_tool，单位转换用unit_convert，时间戳用timestamp，翻译用translate。不要用code_run或bash去做这些操作。' : '')
-      + `\n\n用户信息:\n- 用户名: ${os.userInfo().username}\n- 家目录: ${os.homedir()}\n- 桌面路径: ${path.join(os.homedir(), 'Desktop')}\n- 平台: ${process.platform}\n\n当用户提到"桌面"时,桌面路径是 ${path.join(os.homedir(), 'Desktop')}。使用 readFile/glob/等工具时用 ~/Desktop/file.txt 格式即可。`,
+      + `\n\n用户信息:\n- 用户名: ${os.userInfo().username}\n- 家目录: ${os.homedir()}\n- 桌面路径: ${path.join(os.homedir(), 'Desktop')}\n- 平台: ${process.platform}\n\n当用户提到"桌面"时,桌面路径是 ${path.join(os.homedir(), 'Desktop')}。当用户让你读文件时,直接使用 readFile("~/Desktop/文件名") 读取,不要先用 glob 或 grep 搜索。用 ~/Desktop/file.txt 格式。当用户说"桌面上有XX文件"时直接 readFile 就行,用户说的文件名通常是正确的。`,
     },
   });
 

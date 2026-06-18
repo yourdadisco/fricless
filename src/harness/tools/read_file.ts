@@ -8,9 +8,9 @@ const CWD_NOTE = process.cwd();
 
 export const readFileTool = defineTool({
   name: 'readFile',
-  description: '读取文件内容。参数 file_path 必须是绝对路径。',
+  description: '读取文件内容。直接用这个工具，不用先搜索。路径支持 ~/Desktop/file.txt 格式。',
   inputSchema: z.object({
-    file_path: z.string().describe('文件的绝对路径'),
+    file_path: z.string().describe('文件路径，支持 ~/Desktop/file.txt'),
     offset: z.number().optional().describe('起始行号'),
     limit: z.number().optional().describe('读取行数'),
   }),
