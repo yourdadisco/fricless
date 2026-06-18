@@ -177,7 +177,7 @@ interface ProviderOption {
 const PROVIDERS: ProviderOption[] = [
   { id: 'anthropic',    name: 'Anthropic Claude',   keyEnvVar: 'ANTHROPIC_API_KEY',  modelEnvVar: 'ANTHROPIC_MODEL',  defaultModel: 'claude-sonnet-4-6',   keyHint: '', keyPrefix: 'sk-ant-' },
   { id: 'openai',       name: 'OpenAI',              keyEnvVar: 'OPENAI_API_KEY',     modelEnvVar: 'OPENAI_MODEL',    defaultModel: 'gpt-4o',              keyHint: '', keyPrefix: 'sk-' },
-  { id: 'deepseek',     name: 'DeepSeek',            keyEnvVar: 'DEEPSEEK_API_KEY',   modelEnvVar: 'DEEPSEEK_MODEL',  defaultModel: 'deepseek-chat',       keyHint: '', keyPrefix: 'sk-',  baseUrlEnvVar: 'DEEPSEEK_BASE_URL', defaultBaseUrl: 'https://api.deepseek.com' },
+  { id: 'deepseek',     name: 'DeepSeek',            keyEnvVar: 'DEEPSEEK_API_KEY',   modelEnvVar: 'DEEPSEEK_MODEL',  defaultModel: 'deepseek-chat',       keyHint: '', keyPrefix: 'sk-',  baseUrlEnvVar: 'DEEPSEEK_BASE_URL', defaultBaseUrl: 'https://api.deepseek.com/v1' },
   { id: 'qwen',         name: 'Qwen',                keyEnvVar: 'QWEN_API_KEY',       modelEnvVar: 'QWEN_MODEL',      defaultModel: 'qwen-plus',           keyHint: '', keyPrefix: 'sk-' },
   { id: 'kimi',         name: 'Kimi',                keyEnvVar: 'MOONSHOT_API_KEY',   modelEnvVar: 'MOONSHOT_MODEL',  defaultModel: 'moonshot-v1-8k',      keyHint: '', keyPrefix: 'sk-' },
   { id: 'minimax',      name: 'MiniMax',             keyEnvVar: 'MINIMAX_API_KEY',    modelEnvVar: 'MINIMAX_MODEL',   defaultModel: 'minimax-text-01',     keyHint: '', keyPrefix: 'sk-' },
@@ -384,9 +384,9 @@ function createProviderFromEnv(): AnthropicProvider | OpenAIProvider {
 }
 
 async function terminalMode(): Promise<void> {
-  // 多模型提供商选择 + API Key 设置
-  await ensureApiKey();
+  // 先加载 .env 配置，再检查 API Key（避免 dotenv 未加载导致找不到 key）
   const config = loadConfig();
+  await ensureApiKey();
 
   const renderer = new TerminalRenderer();
   const metrics = new MetricsCollector();
