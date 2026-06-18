@@ -77,4 +77,40 @@ export class TokenCounter {
 
     return result;
   }
+
+  /**
+   * tokenCountWithEstimation — Claude Code 的 tokenCountWithEstimation 移植
+   *
+   * 结合精确计数（如果有 usage 信息）和混合估算。
+   * 对应 Claude Code 的 src/utils/tokens.ts
+   */
+  static tokenCountWithEstimation(messages: Message[], model: string = 'claude'): number {
+    // 从最后一条有 usage 信息的 assistant 消息向后查
+    let total = 0;
+    let foundUsage = false;
+
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.role === 'assistant' && msg.metadata?.usage) {
+        const usage = msg.metadata.usage as { input_tokens?: number; output_tokens?: number };
+        total = (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0);
+        foundUsage = true;
+        break;
+      }
+    }
+
+    if (foundUsage) {
+      // 对 usage 之后的消息做估算（tool results、后续轮次）
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+        if (msg.metadata?.usage) break;
+        const text = typeof msg.content === 'string' ? msg.content : '';
+        total += this.estimate(text, model) + 4;
+      }
+      return total;
+    }
+
+    // 无 usage 信息，全部估算
+    return this.countMessages(messages, model);
+  }
 }
