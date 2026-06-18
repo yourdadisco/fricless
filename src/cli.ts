@@ -584,10 +584,8 @@ async function terminalMode(): Promise<void> {
     session.systemPrompt += '\n\n' + (enriched[0].content as string);
   }
 
-  // 简短欢迎
-  await renderer.text('');
-  await renderer.text('欢迎使用 Fricless。输入 /help 查看可用命令，/quit 退出。');
-  await renderer.text('');
+  // 简洁启动（类似 Claude Code）
+  await renderer.markdown(`**Fricless** v${VERSION}  —  \`/help\` for commands`);
 
   function setupReadline(rl: readline.Interface) {
     rl.on('line', async (line: string) => {
