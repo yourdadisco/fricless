@@ -407,7 +407,7 @@ async function terminalMode(): Promise<void> {
   // DeepSeek 有原生联网搜索（enable_web_search），不需要 web_search/browser/fetch 等网络工具
   const isDeepSeek = !!process.env.DEEPSEEK_API_KEY;
   const tools: AnyTool[] = [
-    ...builtinTools.filter(t => !isDeepSeek || !['web_search', 'web_browser', 'web_fetch', 'agent', 'task_create', 'task_get', 'task_list'].includes(t.name)),
+    ...builtinTools.filter(t => !isDeepSeek || ['calculator', 'datetime', 'time', 'echo', 'uuid_gen', 'hash', 'text_summarize', 'json_tool', 'base64', 'timestamp', 'password_gen', 'regex_test', 'unit_convert', 'color_tool', 'diff_tool', 'translate', 'todo', 'sleep'].includes(t.name)),
     ...pluginManager.allTools,
   ];
 
@@ -550,7 +550,7 @@ async function terminalMode(): Promise<void> {
     id: 'cli-session',
     userId: 'cli-user',
     systemPrompt: '你是一个智能助手，请用中文回答用户的问题。你可以调用工具来帮助用户完成各种任务。'
-      + (isDeepSeek ? '\n\n重要：你已内置联网搜索能力，所有搜索由系统自动完成！你不需要也不应该调用任何工具来搜索信息。直接回答用户问题即可，系统会在后台自动联网获取最新数据。禁止调用 web_search、web_browser、web_fetch、agent、task_create 等任何工具来执行搜索或分解任务。' : ''),
+      + (isDeepSeek ? '\n\n重要：你已内置联网搜索能力，所有联网搜索由系统在后台自动完成！你只需要直接回答用户问题，不需要调用任何工具来搜索、执行命令或获取信息。系统会自动获取最新数据并整合到你的回答中。请只使用你的知识直接回答。' : ''),
   });
   sessionStore.getOrCreate({ id: session.id, userId: session.userId, systemPrompt: session.systemPrompt });
 
@@ -634,7 +634,7 @@ async function gatewayMode(): Promise<void> {
 
   const isDeepSeek = !!process.env.DEEPSEEK_API_KEY;
   const tools: AnyTool[] = [
-    ...builtinTools.filter(t => !isDeepSeek || !['web_search', 'web_browser', 'web_fetch', 'agent', 'task_create', 'task_get', 'task_list'].includes(t.name)),
+    ...builtinTools.filter(t => !isDeepSeek || ['calculator', 'datetime', 'time', 'echo', 'uuid_gen', 'hash', 'text_summarize', 'json_tool', 'base64', 'timestamp', 'password_gen', 'regex_test', 'unit_convert', 'color_tool', 'diff_tool', 'translate', 'todo', 'sleep'].includes(t.name)),
     ...pluginManager.allTools,
   ];
 
@@ -787,7 +787,7 @@ async function gatewayMode(): Promise<void> {
     sessionStore,
     options: {
       systemPrompt: '你是一个智能助手，请用中文回答用户的问题。你可以调用工具来帮助用户完成各种任务。'
-        + (isDeepSeek ? '\n\n重要：你已内置联网搜索能力，所有搜索由系统自动完成！你不需要也不应该调用任何工具来搜索信息。直接回答用户问题即可，系统会在后台自动联网获取最新数据。禁止调用 web_search、web_browser、web_fetch、agent、task_create 等任何工具来执行搜索或分解任务。' : ''),
+        + (isDeepSeek ? '\n\n重要：你已内置联网搜索能力，所有联网搜索由系统在后台自动完成！你只需要直接回答用户问题，不需要调用任何工具来搜索、执行命令或获取信息。系统会自动获取最新数据并整合到你的回答中。请只使用你的知识直接回答。' : ''),
     },
   });
 
