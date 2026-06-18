@@ -1,0 +1,55 @@
+{
+  "name": "fricless",
+  "version": "0.2.0",
+  "description": "类 OpenClaw 网关 × Claude Harness — 飞书机器人 AI 网关 + 终端 CLI",
+  "type": "module",
+  "main": "./dist/cli.js",
+  "bin": {
+    "fricless": "./bin/fricless"
+  },
+  "scripts": {
+    "dev": "node bin/fricless",
+    "start": "node bin/fricless",
+    "start:gateway": "node bin/fricless gateway",
+    "build": "tsc",
+    "link": "npm run build && npm link",
+    "typecheck": "tsc --noEmit",
+    "postinstall": "npm run build || true",
+    "prepublishOnly": "npm run build"
+  },
+  "files": [
+    "dist/",
+    "src/",
+    "README.md",
+    "CLAUDE.md",
+    ".env.example"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.0",
+    "@larksuiteoapi/node-sdk": "^1.66.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/turndown": "^5.0.6",
+    "@vitest/coverage-v8": "^4.1.9",
+    "better-sqlite3": "^12.11.1",
+    "dotenv": "^16.4.0",
+    "express": "^4.22.2",
+    "openai": "^6.44.0",
+    "pino": "^9.0.0",
+    "pino-pretty": "^11.0.0",
+    "turndown": "^7.2.4",
+    "vitest": "^4.1.9",
+    "ws": "^8.21.0",
+    "zod": "^3.23.0",
+    "zod-to-json-schema": "^3.25.2"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^20.14.0",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.16.0",
+    "typescript": "^5.5.0"
+  }
+}

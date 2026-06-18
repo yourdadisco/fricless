@@ -1,0 +1,38 @@
+#!/usr/bin/env node
+/**
+ * Fricless CLI — 直接运行 TypeScript 源码，无需编译
+ *
+ * 一次 npm link，永远 fricless 可用。
+ * 不需要 npm run build，直接跑源码。
+ */
+
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { resolve, dirname } from 'node:path';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const projectRoot = resolve(__dirname, '..');
+const entry = resolve(projectRoot, 'src', 'cli.ts');
+
+// ── Windows 编码修复 ─────────────────────────────────────
+// Windows 终端默认代码页不是 UTF-8，导致路径中的中文在错误栈里显示为乱码。
+// 通过 chcp 65001 切换到 UTF-8 代码页。
+const isWin = process.platform === 'win32';
+if (isWin) {
+  try {
+    spawnSync('chcp', ['65001'], { stdio: 'ignore', shell: true });
+  } catch {
+    // 忽略失败，编码设置不是关键路径
+  }
+}
+
+// ── 启动 ─────────────────────────────────────────────────
+const tsxBin = resolve(projectRoot, 'node_modules', '.bin', isWin ? 'tsx.cmd' : 'tsx');
+
+const result = spawnSync(
+  isWin ? 'cmd' : tsxBin,
+  isWin ? ['/c', tsxBin, entry, ...process.argv.slice(2)] : [entry, ...process.argv.slice(2)],
+  { stdio: 'inherit', cwd: projectRoot },
+);
+
+process.exit(result.status ?? 0);
