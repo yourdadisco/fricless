@@ -587,19 +587,30 @@ async function terminalMode(): Promise<void> {
   // 启动画面
   const providerVendor = provider?.vendor || 'unknown';
   const envModel = process.env[`${providerVendor.toUpperCase()}_MODEL`] || process.env.ANTHROPIC_MODEL || 'unknown';
-  const W = 70;
+  const W = 78;
   const S = (n: number) => ' '.repeat(Math.max(0, n));
-  const line = (left: string, right = '') => `│ ${left}${S(W - 5 - left.length - right.length)}${right} │`;
-  const box = [
-    `╭${'─'.repeat(W - 2)}╮`,
-    line(''),
-    line('Fricless v' + VERSION),
-    line(providerVendor + ' / ' + envModel),
-    line('/help for commands', 'github.com/yourdadisco/fricless'),
-    line(''),
-    `╰${'─'.repeat(W - 2)}╯`,
+  const dl = (l: string) => `│${l}${S(W - 2 - l.length)}│`;
+  const dragon = [
+    '                   ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄',
+    '                ▄▄▀▀▀▀░░░░░░░░░▀▀▀▀▄▄',
+    '              ▄▀▀░░░░░░░░░░░░░░░░░░░░▀▄',
+    '             █░░░░░░░░░░░░░░░░░░░░░░░░░█',
+    '            ▐░░░░░░░░░░░░░░░░░░░░░░░░░░░▌',
+    '            █░░░░▄▄▄▄▄░░░░░░░░▄▄▄▄▄░░░░█',
+    '           ▐░░░░▐░░░░░▌░░░░░░▐░░░░░▌░░░░▌',
+    '           █░░░░░▀▀▀▀▀░░░░░░░▀▀▀▀▀░░░░░█',
+    '          ▐░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▌',
+    '          █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░█',
+    '         ▐░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░▌',
+    '         █▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀█',
+    '         █░░Fricless v' + VERSION + S(16 - VERSION.length) + '░░█',
+    '         █░░' + providerVendor + ' / ' + envModel + S(28 - providerVendor.length - envModel.length) + '░░█',
+    '         ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀',
   ];
-  console.log(box.join('\n'));
+  for (const d of dragon) console.log(dl(d));
+  console.log(dl('  /help  ·  /tools  ·  /model  ·  github.com/yourdadisco/fricless'));
+  console.log(dl(''));
+  console.log(`╰${'─'.repeat(W - 2)}╯`);
 
   function setupReadline(rl: readline.Interface) {
     rl.on('line', async (line: string) => {
