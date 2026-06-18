@@ -43,6 +43,8 @@ export const readFileTool = defineTool({
         content = lines.slice(start, end).join('\n');
         if (lines.length > end) content += `\n... (共 ${lines.length} 行，显示 ${start}-${end})`;
       }
+      // 直接输出到用户屏幕，防止 AI 忽略结果
+      await ctx.sendMessage(content);
       return { data: content };
     } catch (e: any) {
       return { data: `读取失败 [${file_path}]: ${e.message}`, isError: true };
