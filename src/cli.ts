@@ -584,33 +584,29 @@ async function terminalMode(): Promise<void> {
     session.systemPrompt += '\n\n' + (enriched[0].content as string);
   }
 
-  // 启动画面（Claude Code 风格）
-  const providerInfo = provider?.getModelInfo?.();
-  const modelName = providerInfo?.name || 'unknown';
-  const toolCount = tools.length;
+  // 启动画面
+  const providerVendor = provider?.vendor || 'unknown';
+  const envModel = process.env[`${providerVendor.toUpperCase()}_MODEL`] || process.env.ANTHROPIC_MODEL || 'unknown';
   const cwd = process.cwd();
-  const W = 78;
-  const sep = '─'.repeat(W - 4);
-  const empty = `│${' '.repeat(W - 2)}│`;
-  const logo = [
-    `╭${sep}╮`,
-    empty,
-    `│${' '.repeat(28)}Welcome back!${' '.repeat(35)}│`,
-    empty,
-    `│${' '.repeat(24)}${' '.repeat(10)}${' '.repeat(34)}│`,
-    `│${' '.repeat(24)}  ▟██▙  ${' '.repeat(34)}│`,
-    `│${' '.repeat(24)} ▜████▛ ${' '.repeat(34)}│`,
-    `│${' '.repeat(24)}  ▝▀▀▘  ${' '.repeat(34)}│`,
-    `│${' '.repeat(24)}${' '.repeat(10)}${' '.repeat(34)}│`,
-    empty,
-    `│${' '.repeat(4)}Fricless v${VERSION}${' '.repeat(Math.max(1, 20 - VERSION.length))}${' '.repeat(46)}│`,
-    `│${' '.repeat(4)}${modelName}${' '.repeat(Math.max(1, 33 - modelName.length))}${' '.repeat(35)}│`,
-    `│${' '.repeat(4)}${toolCount} tools · /help for commands${' '.repeat(38)}│`,
-    `│${' '.repeat(4)}${cwd}${' '.repeat(Math.max(1, W - 8 - cwd.length))}│`,
-    empty,
-    `╰${sep}╯`,
+  const W = 76;
+  const S = (n: number) => ' '.repeat(Math.max(0, n));
+  const box = [
+    `╭${'─'.repeat(W - 2)}╮`,
+    `│${S(W - 2)}│`,
+    `│${S(16)}   .__    .__       .___${S(26)}│`,
+    `│${S(16)}  |__| __| _/____   _/ __ \\${S(20)}│`,
+    `│${S(16)}  |  |/ __ |/ __ \\  \\  ___/${S(21)}│`,
+    `│${S(16)}  |  / /_/ \\  ___/   \\___  \\${S(20)}│`,
+    `│${S(16)}  |__\\____ |\\___  > /____  /${S(21)}│`,
+    `│${S(16)}         \\/    \\/       \\/${S(25)}│`,
+    `│${S(W - 2)}│`,
+    `│${S(6)}Fricless v${VERSION}${S(W - 16 - VERSION.length)}│`,
+    `│${S(6)}${envModel}${S(W - 8 - envModel.length)}│`,
+    `│${S(6)}${cwd}${S(Math.max(1, W - 8 - cwd.length))}│`,
+    `│${S(W - 2)}│`,
+    `╰${'─'.repeat(W - 2)}╯`,
   ];
-  console.log(logo.join('\n'));
+  console.log(box.join('\n'));
   console.log('');
 
   function setupReadline(rl: readline.Interface) {
