@@ -404,7 +404,12 @@ async function terminalMode(): Promise<void> {
   const pluginManager = new PluginManager();
   await pluginManager.loadAll(pluginDir);
 
-  const tools: AnyTool[] = [...builtinTools, ...pluginManager.allTools];
+  // DeepSeek 有原生联网搜索（enable_web_search），不需要 web_search 工具
+  const isDeepSeek = !!process.env.DEEPSEEK_API_KEY;
+  const tools: AnyTool[] = [
+    ...builtinTools.filter(t => !isDeepSeek || t.name !== 'web_search'),
+    ...pluginManager.allTools,
+  ];
 
   // 重试处理器
   let lastUserMessage = '';
@@ -626,7 +631,11 @@ async function gatewayMode(): Promise<void> {
   const pluginManager = new PluginManager();
   await pluginManager.loadAll(pluginDir);
 
-  const tools: AnyTool[] = [...builtinTools, ...pluginManager.allTools];
+  const isDeepSeek = !!process.env.DEEPSEEK_API_KEY;
+  const tools: AnyTool[] = [
+    ...builtinTools.filter(t => !isDeepSeek || t.name !== 'web_search'),
+    ...pluginManager.allTools,
+  ];
 
   const sessionStore: ISessionStore = config.sessionStore === 'sqlite'
     ? new SQLiteSessionStore(config.sqlitePath)
