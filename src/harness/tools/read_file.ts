@@ -16,8 +16,12 @@ export const readFileTool = defineTool({
   }),
   // Claude Code pattern: expand paths BEFORE validation/permission checks
   backfillObservableInput(input) {
-    if (input.file_path && typeof input.file_path === 'string') {
-      input.file_path = resolvePath(input.file_path);
+    // 兼容 AI 发送的 path 和 file_path 两种参数名
+    const fp = (input.file_path || input.path || '') as string;
+    if (fp) {
+      const resolved = resolvePath(fp);
+      input.file_path = resolved;
+      input.path = resolved;
     }
   },
   isReadOnly: true,
